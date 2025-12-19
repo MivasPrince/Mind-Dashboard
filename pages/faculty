@@ -1,0 +1,314 @@
+"""
+Faculty Dashboard Page
+Cohort performance, student insights, and teaching analytics
+"""
+
+import streamlit as st
+from core.db import get_bigquery_client, run_query
+from core.settings import get_table_ref
+from components.ui import (
+    render_kpi_row, render_bar_chart, render_heatmap, 
+    render_data_table, render_data_unavailable, render_pie_chart
+)
+import pandas as pd
+
+def render():
+    """Render the faculty dashboard page"""
+    
+    st.markdown('<h1 class="main-header">👨‍🏫 Faculty Dashboard</h1>', unsafe_allow_html=True)
+    st.write("Cohort Performance & Student Analytics")
+    
+    # Get BigQuery client
+    client = get_bigquery_client()
+    if client is None:
+        st.error("Failed to connect to BigQuery")
+        st.stop()
+    
+    # Cohort/Department Filter
+    st.subheader("🎓 Filter by Cohort/Department")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        cohorts_query = f"""
+        SELECT DISTINCT cohort
+        FROM {get_table_ref('user')}
+        WHERE cohort IS NOT NULL
+        ORDER BY cohort
+        """
+        cohorts_df = run_query(cohorts_query, client)
+        cohort_options = ['All'] + (cohorts_df['cohort'].tolist() if cohorts_df is not None else [])
+        selected_cohort = st.selectbox("Cohort", cohort_options)
+    
+    with col2:
+        departments_query = f"""
+        SELECT DISTINCT department
+        FROM {get_table_ref('user')}
+        WHERE department IS NOT NULL
+        ORDER BY department
+        """
+        departments_df = run_query(departments_query, client)
+        dept_options = ['All'] + (departments_df['department'].tolist() if departments_df is not None else [])
+        selected_dept = st.selectbox("Department", dept_options)
+    
+    # Build filter clause
+    filter_clauses = []
+    if selected_cohort != 'All':
+        filter_clauses.append(f"u.cohort = '{selected_cohort}'")
+    if selected_dept != 'All':
+        filter_clauses.append(f"u.department = '{selected_dept}'")
+    
+    where_clause = " AND " + " AND ".join(filter_clauses) if filter_clauses else ""
+    
+    st.divider()
+    
+    # Cohort Overview KPIs
+    st.subheader("📊 Cohort Overview")
+    
+    with st.spinner("Loading cohort metrics..."):
+        # Total students
+        students_query = f"""
+        SELECT COUNT(DISTINCT u.user_id) as total_students
+        FROM {get_table_ref('user')} u
+        WHERE 1=1 {where_clause}
+        """
+        students_df = run_query(students_query, client)
+        total_students = students_df['total_students'].iloc[0] if students_df is not None and not students_df.empty else 0
+        
+        # Average cohort score
+        cohort_score_query = f"""
+        SELECT AVG(g.final_score) as avg_score
+        FROM {get_table_ref('grades')} g
+        LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
+        WHERE 1=1 {where_clause}
+        """
+        cohort_score_df = run_query(cohort_score_query, client)
+        avg_cohort_score = cohort_score_df['avg_score'].iloc[0] if cohort_score_df is not None and not cohort_score_df.empty else 0
+        
+        # Total attempts
+        attempts_query = f"""
+        SELECT COUNT(*) as total_attempts
+        FROM {get_table_ref('conversation')} c
+        LEFT JOIN {get_table_ref('user')} u ON c.user_id = u.user_id
+        WHERE 1=1 {where_clause}
+        """
+        attempts_df = run_query(attempts_query, client)
+        total_attempts = attempts_df['total_attempts'].iloc[0] if attempts_df is not None and not attempts_df.empty else 0
+        
+        # Active students (with activity in last 7 days)
+        active_query = f"""
+        SELECT COUNT(DISTINCT c.user_id) as active_students
+        FROM {get_table_ref('conversation')} c
+        LEFT JOIN {get_table_ref('user')} u ON c.user_id = u.user_id
+        WHERE c.timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+        {where_clause}
+        """
+        active_df = run_query(active_query, client)
+        active_students = active_df['active_students'].iloc[0] if active_df is not None and not active_df.empty else 0
+    
+    # Display KPIs
+    render_kpi_row([
+        {
+            'title': 'Total Students',
+            'value': f"{total_students:,}",
+            'icon': '👥',
+            'help_text': 'Total students in selected cohort/department'
+        },
+        {
+            'title': 'Cohort Avg Score',
+            'value': f"{avg_cohort_score:.1f}" if avg_cohort_score else "N/A",
+            'icon': '⭐',
+            'help_text': 'Average score across all students'
+        },
+        {
+            'title': 'Total Attempts',
+            'value': f"{total_attempts:,}",
+            'icon': '🎯',
+            'help_text': 'Total conversation attempts'
+        },
+        {
+            'title': 'Active (7 days)',
+            'value': f"{active_students:,}",
+            'icon': '✅',
+            'help_text': 'Students with activity in last 7 days'
+        }
+    ])
+    
+    st.divider()
+    
+    # Student Performance Distribution
+    st.subheader("📈 Student Performance Distribution")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        performance_dist_query = f"""
+        SELECT 
+            u.name,
+            AVG(g.final_score) as avg_score,
+            COUNT(g.grade_id) as num_attempts
+        FROM {get_table_ref('grades')} g
+        LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
+        WHERE 1=1 {where_clause}
+        GROUP BY u.name
+        ORDER BY avg_score DESC
+        LIMIT 20
+        """
+        performance_dist = run_query(performance_dist_query, client)
+        
+        if performance_dist is not None and not performance_dist.empty:
+            render_bar_chart(
+                performance_dist,
+                x='name',
+                y='avg_score',
+                title='Top 20 Students by Average Score',
+                horizontal=True
+            )
+        else:
+            render_data_unavailable("student performance")
+    
+    with col2:
+        # Score ranges
+        score_ranges_query = f"""
+        SELECT 
+            CASE 
+                WHEN final_score >= 90 THEN 'Excellent (90-100)'
+                WHEN final_score >= 80 THEN 'Good (80-89)'
+                WHEN final_score >= 70 THEN 'Satisfactory (70-79)'
+                WHEN final_score >= 60 THEN 'Needs Improvement (60-69)'
+                ELSE 'Poor (<60)'
+            END as score_range,
+            COUNT(*) as count
+        FROM {get_table_ref('grades')} g
+        LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
+        WHERE 1=1 {where_clause}
+        GROUP BY score_range
+        """
+        score_ranges = run_query(score_ranges_query, client)
+        
+        if score_ranges is not None and not score_ranges.empty:
+            render_pie_chart(
+                score_ranges,
+                names='score_range',
+                values='count',
+                title='Score Distribution'
+            )
+        else:
+            render_data_unavailable("score distribution")
+    
+    st.divider()
+    
+    # Rubric Heatmap
+    st.subheader("🔥 Rubric Performance Heatmap")
+    
+    rubric_heatmap_query = f"""
+    SELECT 
+        c.title as case_study,
+        AVG(g.communication) as communication,
+        AVG(g.comprehension) as comprehension,
+        AVG(g.critical_thinking) as critical_thinking
+    FROM {get_table_ref('grades')} g
+    LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
+    LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study_id = c.case_study_id
+    WHERE 1=1 {where_clause}
+    GROUP BY c.title
+    ORDER BY c.title
+    """
+    rubric_heatmap = run_query(rubric_heatmap_query, client)
+    
+    if rubric_heatmap is not None and not rubric_heatmap.empty:
+        # Reshape for heatmap
+        heatmap_long = rubric_heatmap.melt(
+            id_vars=['case_study'],
+            value_vars=['communication', 'comprehension', 'critical_thinking'],
+            var_name='rubric',
+            value_name='score'
+        )
+        
+        render_heatmap(
+            heatmap_long,
+            x='rubric',
+            y='case_study',
+            z='score',
+            title='Average Rubric Scores by Case Study'
+        )
+    else:
+        st.info("Not enough data for rubric heatmap")
+    
+    st.divider()
+    
+    # At-Risk Students Detection
+    st.subheader("⚠️ At-Risk Students")
+    st.caption("Students with low engagement or declining performance")
+    
+    at_risk_query = f"""
+    WITH student_stats AS (
+        SELECT 
+            u.user_id,
+            u.name,
+            u.student_email,
+            COUNT(DISTINCT g.grade_id) as num_attempts,
+            AVG(g.final_score) as avg_score,
+            MAX(c.timestamp) as last_activity
+        FROM {get_table_ref('user')} u
+        LEFT JOIN {get_table_ref('grades')} g ON u.user_id = g.user_id
+        LEFT JOIN {get_table_ref('conversation')} c ON u.user_id = c.user_id
+        WHERE 1=1 {where_clause}
+        GROUP BY u.user_id, u.name, u.student_email
+    )
+    SELECT 
+        name,
+        student_email,
+        num_attempts,
+        ROUND(avg_score, 1) as avg_score,
+        last_activity,
+        TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) as days_since_activity
+    FROM student_stats
+    WHERE 
+        (avg_score < 70 AND num_attempts > 0)
+        OR (num_attempts < 3 AND TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) > 14)
+        OR (TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) > 30)
+    ORDER BY avg_score ASC, days_since_activity DESC
+    LIMIT 20
+    """
+    at_risk = run_query(at_risk_query, client)
+    
+    if at_risk is not None and not at_risk.empty:
+        render_data_table(
+            at_risk,
+            title="At-Risk Students",
+            max_rows=20
+        )
+    else:
+        st.success("✅ No at-risk students identified")
+    
+    st.divider()
+    
+    # Case Study Analytics
+    st.subheader("📚 Case Study Analytics")
+    
+    case_analytics_query = f"""
+    SELECT 
+        c.title,
+        COUNT(DISTINCT g.user_id) as unique_students,
+        COUNT(g.grade_id) as total_attempts,
+        AVG(g.final_score) as avg_score,
+        MIN(g.final_score) as min_score,
+        MAX(g.final_score) as max_score
+    FROM {get_table_ref('casestudy')} c
+    LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study_id
+    LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
+    WHERE 1=1 {where_clause}
+    GROUP BY c.title
+    ORDER BY avg_score DESC
+    """
+    case_analytics = run_query(case_analytics_query, client)
+    
+    if case_analytics is not None and not case_analytics.empty:
+        render_data_table(
+            case_analytics,
+            title="Case Study Performance Summary",
+            max_rows=50
+        )
+    else:
+        render_data_unavailable("case study analytics")
