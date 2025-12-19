@@ -1,0 +1,45 @@
+MIND UNIFIED DASHBOARD - INSTALLATION
+
+1. STRUCTURE YOUR PROJECT:
+   Create this folder structure:
+   
+   MIND-Unified-Dashboard/
+   ├── Home.py
+   ├── auth.py
+   ├── db.py
+   ├── theme.py
+   ├── requirements.txt
+   ├── .gitignore
+   ├── .streamlit/
+   │   └── secrets.toml
+   ├── assets/
+   │   └── mind_logo.png (add your logo)
+   ├── core/
+   │   ├── components.py
+   │   ├── utils.py
+   │   └── queries/
+   │       ├── admin_queries.py
+   │       ├── attempts_queries.py
+   │       ├── engagement_queries.py
+   │       ├── environment_queries.py
+   │       └── rubric_queries.py
+   └── pages/
+       ├── 1_Student_Dashboard.py
+       ├── 2_Faculty_Dashboard.py
+       ├── 3_Developer_Dashboard.py
+       └── 4_Admin_Dashboard.py
+
+2. INSTALL DEPENDENCIES:
+   pip install -r requirements.txt
+
+3. CONFIGURE DATABASE:
+   Edit .streamlit/secrets.toml with your Neon Postgres credentials
+
+4. RUN:
+   streamlit run Home.py
+
+5. LOGIN:
+   Email: admin@example.com
+   Password: admin123
+
+See docs/START_HERE.md for complete instructions
