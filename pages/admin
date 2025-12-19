@@ -1,0 +1,320 @@
+"""
+Admin Dashboard Page
+Organization-wide insights and administrative metrics
+"""
+
+import streamlit as st
+from core.db import get_bigquery_client, run_query
+from core.settings import get_table_ref
+from components.ui import (
+    render_kpi_row, render_bar_chart, render_line_chart, 
+    render_pie_chart, render_data_table
+)
+import pandas as pd
+
+def render():
+    """Render the admin dashboard page"""
+    
+    st.markdown('<h1 class="main-header">⚙️ Admin Dashboard</h1>', unsafe_allow_html=True)
+    st.write("Organization-wide Insights & Administration")
+    
+    # Get BigQuery client
+    client = get_bigquery_client()
+    if client is None:
+        st.error("Failed to connect to BigQuery")
+        st.stop()
+    
+    # Platform-wide KPIs
+    st.subheader("📊 Platform Overview")
+    
+    with st.spinner("Loading platform metrics..."):
+        # Total users
+        users_query = f"SELECT COUNT(*) as total FROM {get_table_ref('user')}"
+        users_df = run_query(users_query, client)
+        total_users = users_df['total'].iloc[0] if users_df is not None and not users_df.empty else 0
+        
+        # Total sessions
+        sessions_query = f"SELECT COUNT(*) as total FROM {get_table_ref('sessions')}"
+        sessions_df = run_query(sessions_query, client)
+        total_sessions = sessions_df['total'].iloc[0] if sessions_df is not None and not sessions_df.empty else 0
+        
+        # Total conversations
+        conversations_query = f"SELECT COUNT(*) as total FROM {get_table_ref('conversation')}"
+        conversations_df = run_query(conversations_query, client)
+        total_conversations = conversations_df['total'].iloc[0] if conversations_df is not None and not conversations_df.empty else 0
+        
+        # Total grades
+        grades_query = f"SELECT COUNT(*) as total FROM {get_table_ref('grades')}"
+        grades_df = run_query(grades_query, client)
+        total_grades = grades_df['total'].iloc[0] if grades_df is not None and not grades_df.empty else 0
+    
+    render_kpi_row([
+        {
+            'title': 'Total Users',
+            'value': f"{total_users:,}",
+            'icon': '👥',
+            'help_text': 'All registered users'
+        },
+        {
+            'title': 'Learning Sessions',
+            'value': f"{total_sessions:,}",
+            'icon': '📚',
+            'help_text': 'Total engagement sessions'
+        },
+        {
+            'title': 'Conversations',
+            'value': f"{total_conversations:,}",
+            'icon': '💬',
+            'help_text': 'AI-learner interactions'
+        },
+        {
+            'title': 'Graded Attempts',
+            'value': f"{total_grades:,}",
+            'icon': '✅',
+            'help_text': 'Total graded attempts'
+        }
+    ])
+    
+    st.divider()
+    
+    # User Adoption Metrics
+    st.subheader("📈 User Adoption & Engagement")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Users by role
+        role_dist_query = f"""
+        SELECT 
+            COALESCE(role, 'Undefined') as role,
+            COUNT(*) as count
+        FROM {get_table_ref('user')}
+        GROUP BY role
+        ORDER BY count DESC
+        """
+        role_dist = run_query(role_dist_query, client)
+        
+        if role_dist is not None and not role_dist.empty:
+            render_pie_chart(
+                role_dist,
+                names='role',
+                values='count',
+                title='Users by Role'
+            )
+        else:
+            st.info("No role distribution data")
+    
+    with col2:
+        # Users by cohort
+        cohort_dist_query = f"""
+        SELECT 
+            COALESCE(cohort, 'No Cohort') as cohort,
+            COUNT(*) as count
+        FROM {get_table_ref('user')}
+        GROUP BY cohort
+        ORDER BY count DESC
+        LIMIT 10
+        """
+        cohort_dist = run_query(cohort_dist_query, client)
+        
+        if cohort_dist is not None and not cohort_dist.empty:
+            render_pie_chart(
+                cohort_dist,
+                names='cohort',
+                values='count',
+                title='Users by Cohort (Top 10)'
+            )
+        else:
+            st.info("No cohort distribution data")
+    
+    # Daily/Weekly/Monthly Active Users
+    st.markdown("**Active Users Over Time**")
+    
+    active_users_query = f"""
+    SELECT 
+        DATE(timestamp) as date,
+        COUNT(DISTINCT user_id) as daily_active_users
+    FROM {get_table_ref('conversation')}
+    WHERE timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+    GROUP BY DATE(timestamp)
+    ORDER BY date
+    """
+    active_users = run_query(active_users_query, client)
+    
+    if active_users is not None and not active_users.empty:
+        render_line_chart(
+            active_users,
+            x='date',
+            y='daily_active_users',
+            title='Daily Active Users (Last 30 Days)'
+        )
+    else:
+        st.info("No active user data available")
+    
+    st.divider()
+    
+    # Case Study Usage
+    st.subheader("📚 Case Study Usage")
+    
+    case_usage_query = f"""
+    SELECT 
+        c.title,
+        COUNT(DISTINCT s.user_id) as unique_users,
+        COUNT(s.session_pk) as total_sessions,
+        COUNT(g.grade_id) as graded_attempts,
+        AVG(g.final_score) as avg_score
+    FROM {get_table_ref('casestudy')} c
+    LEFT JOIN {get_table_ref('sessions')} s ON c.case_study_id = s.case_study_id
+    LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study_id
+    GROUP BY c.title
+    ORDER BY unique_users DESC
+    """
+    case_usage = run_query(case_usage_query, client)
+    
+    if case_usage is not None and not case_usage.empty:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            render_bar_chart(
+                case_usage.head(10),
+                x='title',
+                y='unique_users',
+                title='Most Popular Case Studies (by Unique Users)',
+                horizontal=True
+            )
+        
+        with col2:
+            render_bar_chart(
+                case_usage.head(10),
+                x='title',
+                y='total_sessions',
+                title='Most Active Case Studies (by Sessions)',
+                horizontal=True
+            )
+        
+        render_data_table(
+            case_usage,
+            title="Detailed Case Study Analytics",
+            max_rows=50
+        )
+    else:
+        st.info("No case study usage data")
+    
+    st.divider()
+    
+    # Completion Funnel
+    st.subheader("🎯 Learning Completion Funnel")
+    
+    funnel_query = f"""
+    WITH funnel AS (
+        SELECT 
+            (SELECT COUNT(DISTINCT user_id) FROM {get_table_ref('user')}) as registered_users,
+            (SELECT COUNT(DISTINCT user_id) FROM {get_table_ref('sessions')}) as users_with_sessions,
+            (SELECT COUNT(DISTINCT user_id) FROM {get_table_ref('conversation')}) as users_with_conversations,
+            (SELECT COUNT(DISTINCT user_id) FROM {get_table_ref('grades')}) as users_with_grades
+    )
+    SELECT * FROM funnel
+    """
+    funnel = run_query(funnel_query, client)
+    
+    if funnel is not None and not funnel.empty:
+        funnel_data = funnel.iloc[0]
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Registered",
+                f"{funnel_data['registered_users']:,}",
+                help="Total registered users"
+            )
+        
+        with col2:
+            completion_rate = (funnel_data['users_with_sessions'] / funnel_data['registered_users'] * 100) if funnel_data['registered_users'] > 0 else 0
+            st.metric(
+                "Started Session",
+                f"{funnel_data['users_with_sessions']:,}",
+                f"{completion_rate:.1f}%",
+                help="Users who started at least one session"
+            )
+        
+        with col3:
+            completion_rate = (funnel_data['users_with_conversations'] / funnel_data['registered_users'] * 100) if funnel_data['registered_users'] > 0 else 0
+            st.metric(
+                "Had Conversation",
+                f"{funnel_data['users_with_conversations']:,}",
+                f"{completion_rate:.1f}%",
+                help="Users who had at least one conversation"
+            )
+        
+        with col4:
+            completion_rate = (funnel_data['users_with_grades'] / funnel_data['registered_users'] * 100) if funnel_data['registered_users'] > 0 else 0
+            st.metric(
+                "Received Grade",
+                f"{funnel_data['users_with_grades']:,}",
+                f"{completion_rate:.1f}%",
+                help="Users who received at least one grade"
+            )
+    
+    st.divider()
+    
+    # Department/Cohort Performance
+    st.subheader("🎓 Department & Cohort Performance")
+    
+    dept_performance_query = f"""
+    SELECT 
+        COALESCE(u.department, 'No Department') as department,
+        COUNT(DISTINCT u.user_id) as students,
+        COUNT(g.grade_id) as attempts,
+        AVG(g.final_score) as avg_score
+    FROM {get_table_ref('user')} u
+    LEFT JOIN {get_table_ref('grades')} g ON u.user_id = g.user_id
+    GROUP BY department
+    HAVING students > 0
+    ORDER BY avg_score DESC
+    """
+    dept_performance = run_query(dept_performance_query, client)
+    
+    if dept_performance is not None and not dept_performance.empty:
+        render_data_table(
+            dept_performance,
+            title="Performance by Department",
+            max_rows=50
+        )
+    else:
+        st.info("No department performance data")
+    
+    st.divider()
+    
+    # System Health Summary
+    st.subheader("🔧 System Health Summary")
+    
+    health_query = f"""
+    SELECT 
+        'Active Sessions (Last 24h)' as metric,
+        COUNT(*) as value
+    FROM {get_table_ref('sessions')}
+    WHERE last_activity >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+    
+    UNION ALL
+    
+    SELECT 
+        'New Users (Last 7 days)' as metric,
+        COUNT(*) as value
+    FROM {get_table_ref('user')}
+    WHERE date_added >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+    
+    UNION ALL
+    
+    SELECT 
+        'Graded Attempts (Last 24h)' as metric,
+        COUNT(*) as value
+    FROM {get_table_ref('grades')}
+    WHERE timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+    """
+    health = run_query(health_query, client)
+    
+    if health is not None and not health.empty:
+        st.dataframe(health, use_container_width=True, hide_index=True)
+    else:
+        st.info("No system health data")
