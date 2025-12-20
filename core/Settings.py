@@ -148,14 +148,20 @@ FIELD_MAPPINGS = {
     }
 }
 
-# Color scheme for consistent UI
+# Color scheme for consistent UI (MIVA branding)
 COLORS = {
-    'primary': '#E31837',      # MIVA Red
-    'secondary': '#ff7f0e',
-    'success': '#2ca02c',
-    'warning': '#ffbb00',
-    'danger': '#d62728',
-    'info': '#17becf'
+    'primary': '#E31837',       # MIVA Red - primary brand color
+    'secondary': '#262730',     # Dark gray - works in both light and dark modes
+    'success': '#2ca02c',       # Green - for positive metrics
+    'warning': '#ffbb00',       # Amber - for caution/attention
+    'danger': '#E31837',        # MIVA Red - for errors (using brand color)
+    'info': '#17becf',          # Cyan - for informational content
+    'light_bg': '#FFFFFF',      # White - light mode background
+    'light_secondary': '#F0F2F6',  # Light gray - light mode secondary
+    'dark_bg': '#0E1117',       # Deep black - dark mode background
+    'dark_secondary': '#262730', # Dark gray - dark mode secondary
+    'light_text': '#262730',    # Dark gray - light mode text
+    'dark_text': '#FAFAFA'      # Very light gray - dark mode text
 }
 
 # Dashboard refresh intervals (in seconds)
