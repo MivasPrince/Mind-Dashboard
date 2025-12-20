@@ -1,0 +1,22 @@
+[theme]
+primaryColor = "#E31837"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+font = "sans serif"
+
+[server]
+headless = true
+port = 8501
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
+
+# Dark mode theme (applied when dark mode is enabled)
+[theme.dark]
+primaryColor = "#E31837"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#262730"
+textColor = "#FAFAFA"
