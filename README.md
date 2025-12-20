@@ -7,6 +7,7 @@ Production-quality Streamlit multi-page dashboard with Google BigQuery backend a
 - **Multi-page Dashboard**: Home, Student, Faculty, Developer, and Admin dashboards
 - **Role-Based Access Control (RBAC)**: Secure authentication with bcrypt password hashing
 - **BigQuery Integration**: Read-only access to MIND analytics database
+- **Dark Mode Support**: Full dark mode with theme-aware logos and styling
 - **Professional UI**: Clean, responsive design with interactive visualizations
 - **Comprehensive Analytics**: 
   - Student performance tracking
@@ -196,6 +197,9 @@ mind-dashboard/
 │   ├── config.toml            # Streamlit configuration
 │   └── secrets.toml.example   # Example secrets template
 │
+├── assets/
+│   └── README.md              # Logo and branding assets (place miva_logo.png here)
+│
 ├── core/
 │   ├── __init__.py
 │   ├── auth.py                # Authentication logic
@@ -256,6 +260,22 @@ mind-dashboard/
 - **Progressive Loading**: Load critical data first, secondary data later
 
 ## 🛠️ Customization
+
+### Using Dark Mode
+
+The dashboard includes a built-in dark mode toggle:
+
+1. **Switch Themes**: Click the theme toggle button (🌙/☀️) in the sidebar
+2. **Logo Support**: Place both light and dark versions of your logo in `assets/`:
+   - `miva_logo_light.png` - For light mode
+   - `miva_logo_dark.png` - For dark mode
+3. **Theme Colors**: Configure in `.streamlit/config.toml`
+
+**Dark Mode Colors:**
+- Background: `#0E1117` (deep black)
+- Secondary: `#262730` (dark gray)
+- Text: `#FAFAFA` (very light gray)
+- Accent: `#E31837` (MIVA red)
 
 ### Adding New Pages
 
