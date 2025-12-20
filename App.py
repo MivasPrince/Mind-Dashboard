@@ -1,11 +1,12 @@
 """
 MIND Unified Dashboard - Main Application Entry Point
-Streamlit multi-page app with RBAC and BigQuery backend
+Streamlit multi-page app with RBAC, BigQuery backend, and dark mode support
 """
 
 import streamlit as st
 from core.auth import check_authentication, logout
 from core.rbac import check_page_access, get_accessible_pages
+from core.theme import initialize_theme, apply_theme_css, get_logo_path, render_theme_toggle
 
 # Page configuration
 st.set_page_config(
@@ -15,26 +16,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for professional appearance
-st.markdown("""
-    <style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: 700;
-        color: #1f77b4;
-        margin-bottom: 1rem;
-    }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1.5rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #1f77b4;
-    }
-    .stButton>button {
-        width: 100%;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# Initialize theme
+initialize_theme()
+
+# Apply theme-specific CSS
+apply_theme_css()
 
 # Initialize session state
 if 'authenticated' not in st.session_state:
@@ -50,9 +36,20 @@ if not st.session_state.authenticated:
 else:
     # Sidebar navigation
     with st.sidebar:
+        # Display theme-appropriate logo
+        logo_path = get_logo_path()
+        if logo_path:
+            st.image(str(logo_path), width=200)
+        
         st.title("🎓 MIND Dashboard")
         st.write(f"**User:** {st.session_state.username}")
         st.write(f"**Role:** {st.session_state.role}")
+        
+        st.divider()
+        
+        # Theme toggle
+        render_theme_toggle()
+        
         st.divider()
         
         # Get accessible pages for current user
