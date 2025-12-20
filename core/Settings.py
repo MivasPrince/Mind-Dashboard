@@ -150,7 +150,7 @@ FIELD_MAPPINGS = {
 
 # Color scheme for consistent UI
 COLORS = {
-    'primary': '#1f77b4',
+    'primary': '#E31837',      # MIVA Red
     'secondary': '#ff7f0e',
     'success': '#2ca02c',
     'warning': '#ffbb00',
