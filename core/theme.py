@@ -162,7 +162,7 @@ def get_theme_colors():
     
     if theme == 'dark':
         return {
-            'background': '#0E1117',
+            'bg': '#0E1117',           # Changed from 'background'
             'secondary_bg': '#262730',
             'text': '#FAFAFA',
             'text_secondary': '#CCCCCC',
@@ -171,7 +171,7 @@ def get_theme_colors():
         }
     else:
         return {
-            'background': '#FFFFFF',
+            'bg': '#FFFFFF',           # Changed from 'background'
             'secondary_bg': '#F0F2F6',
             'text': '#262730',
             'text_secondary': '#666666',
