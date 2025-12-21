@@ -9,7 +9,7 @@ import streamlit as st
 BIGQUERY_CONFIG = {
     'project_id': 'gen-lang-client-0625543859',
     'dataset': 'mind_analytics',
-    'location': 'EU'
+    'location': 'europe-west3'
 }
 
 # Full table reference helper
