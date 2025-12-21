@@ -1,6 +1,6 @@
 """
-Student Dashboard Page
-Personal learning analytics and performance metrics
+Student Dashboard - Personalized View
+Personal progress, performance trends, benchmarking, and feedback
 """
 
 import sys
@@ -8,19 +8,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
 from core.db import get_bigquery_client, run_query
 from core.settings import get_table_ref
 from components.ui import (
-    render_kpi_row, render_bar_chart, render_line_chart, 
-    render_data_table, render_data_unavailable
+    render_kpi_row, render_line_chart, render_bar_chart, render_radar_chart,
+    render_data_table, render_gauge_chart, render_data_unavailable
 )
-import pandas as pd
 
 def render():
-    """Render the student dashboard page"""
+    """Render the enhanced student dashboard page"""
     
     st.markdown('<h1 class="main-header">📚 Student Dashboard</h1>', unsafe_allow_html=True)
-    st.write(f"Welcome, **{st.session_state.username}**")
+    st.write(f"Welcome, **{st.session_state.username}** - Your personal learning analytics")
     
     # Get BigQuery client
     client = get_bigquery_client()
@@ -28,22 +29,22 @@ def render():
         st.error("Failed to connect to BigQuery")
         st.stop()
     
-    # Student selector (for demo - in production, this would be the logged-in user)
+    # Student Selector
     st.subheader("👤 Select Student")
     
     users_query = f"""
-    SELECT user_id, name, email, cohort
+    SELECT user_id, name, email
     FROM {get_table_ref('user')}
     WHERE role = 'student' OR role IS NULL
     ORDER BY name
+    LIMIT 100
     """
     users_df = run_query(users_query, client)
     
     if users_df is None or users_df.empty:
-        st.warning("No students found in database")
+        st.warning("No students found")
         st.stop()
     
-    # Student selector
     student_options = {f"{row['name']} ({row['email']})": row['user_id'] 
                       for _, row in users_df.iterrows()}
     
@@ -57,20 +58,20 @@ def render():
     
     st.divider()
     
-    # Student Overview KPIs
-    st.subheader("📊 Your Performance Overview")
+    # KPI CARDS
+    st.subheader("📊 Your Performance Summary")
     
-    with st.spinner("Loading your metrics..."):
-        # Total attempts
-        attempts_query = f"""
-        SELECT COUNT(*) as total_attempts
-        FROM {get_table_ref('conversation')}
+    with st.spinner("Loading metrics..."):
+        # Cases Attempted
+        attempted_query = f"""
+        SELECT COUNT(DISTINCT case_study) as attempted
+        FROM {get_table_ref('grades')}
         WHERE user = '{student_id}'
         """
-        attempts_df = run_query(attempts_query, client)
-        total_attempts = attempts_df['total_attempts'].iloc[0] if attempts_df is not None and not attempts_df.empty else 0
+        attempted_df = run_query(attempted_query, client)
+        cases_attempted = attempted_df['attempted'].iloc[0] if attempted_df is not None and not attempted_df.empty else 0
         
-        # Average score
+        # Average Score
         avg_score_query = f"""
         SELECT AVG(final_score) as avg_score
         FROM {get_table_ref('grades')}
@@ -78,171 +79,84 @@ def render():
         """
         avg_score_df = run_query(avg_score_query, client)
         avg_score = avg_score_df['avg_score'].iloc[0] if avg_score_df is not None and not avg_score_df.empty else 0
-        
-        # Completed cases
-        completed_query = f"""
-        SELECT COUNT(DISTINCT case_study) as completed_cases
-        FROM {get_table_ref('grades')}
-        WHERE user = '{student_id}'
-        """
-        completed_df = run_query(completed_query, client)
-        completed_cases = completed_df['completed_cases'].iloc[0] if completed_df is not None and not completed_df.empty else 0
-        
-        # Recent activity
-        recent_query = f"""
-        SELECT MAX(timestamp) as last_activity
-        FROM {get_table_ref('conversation')}
-        WHERE user = '{student_id}'
-        """
-        recent_df = run_query(recent_query, client)
-        last_activity = recent_df['last_activity'].iloc[0] if recent_df is not None and not recent_df.empty else None
     
-    # Display KPIs
     render_kpi_row([
-        {
-            'title': 'Total Attempts',
-            'value': f"{total_attempts:,}",
-            'icon': '🎯',
-            'help_text': 'Total conversation attempts'
-        },
-        {
-            'title': 'Average Score',
-            'value': f"{avg_score:.1f}" if avg_score else "N/A",
-            'icon': '⭐',
-            'help_text': 'Average final score across all graded attempts'
-        },
-        {
-            'title': 'Cases Completed',
-            'value': f"{completed_cases:,}",
-            'icon': '✅',
-            'help_text': 'Number of unique case studies completed'
-        },
-        {
-            'title': 'Last Activity',
-            'value': str(last_activity.date()) if last_activity else "Never",
-            'icon': '🕒',
-            'help_text': 'Most recent learning activity'
-        }
+        {'title': 'Cases Attempted', 'value': f"{cases_attempted}", 'icon': '📚'},
+        {'title': 'Average Score', 'value': f"{avg_score:.1f}", 'icon': '📈'}
     ])
     
     st.divider()
     
-    # Performance by Case Study
-    st.subheader("📈 Performance by Case Study")
+    # PERFORMANCE TREND
+    st.subheader("📈 Performance Trend")
     
-    case_performance_query = f"""
+    perf_query = f"""
     SELECT 
-        c.title as case_title,
-        COUNT(g._id) as attempts,
-        AVG(g.final_score) as avg_score,
-        MAX(g.final_score) as best_score,
-        AVG(g.individual_scores.communication) as avg_communication,
-        AVG(g.individual_scores.comprehension) as avg_comprehension,
-        AVG(g.individual_scores.critical_thinking) as avg_critical_thinking
-    FROM {get_table_ref('grades')} g
-    LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study = c.case_study_id
-    WHERE g.user = '{student_id}'
-    GROUP BY c.title
-    ORDER BY avg_score DESC
-    """
-    case_performance = run_query(case_performance_query, client)
-    
-    if case_performance is not None and not case_performance.empty:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            render_bar_chart(
-                case_performance,
-                x='case_title',
-                y='avg_score',
-                title='Average Score by Case Study'
-            )
-        
-        with col2:
-            render_bar_chart(
-                case_performance,
-                x='case_title',
-                y='attempts',
-                title='Number of Attempts by Case Study'
-            )
-        
-        # Detailed table
-        st.markdown("**Detailed Performance Breakdown**")
-        render_data_table(case_performance, max_rows=50)
-    else:
-        render_data_unavailable("grades")
-    
-    st.divider()
-    
-    # Rubric Scores Over Time
-    st.subheader("📊 Skill Development Over Time")
-    
-    rubric_timeline_query = f"""
-    SELECT 
-        DATE(g.timestamp) as date,
-        AVG(g.individual_scores.communication) as communication,
-        AVG(g.individual_scores.comprehension) as comprehension,
-        AVG(g.individual_scores.critical_thinking) as critical_thinking,
-        AVG(g.final_score) as overall
-    FROM {get_table_ref('grades')} g
-    WHERE g.user = '{student_id}'
-    GROUP BY DATE(g.timestamp)
+        DATE(timestamp) as date,
+        AVG(final_score) as avg_score
+    FROM {get_table_ref('grades')}
+    WHERE user = '{student_id}'
+    GROUP BY DATE(timestamp)
     ORDER BY date
     """
-    rubric_timeline = run_query(rubric_timeline_query, client)
+    perf_data = run_query(perf_query, client)
     
-    if rubric_timeline is not None and not rubric_timeline.empty:
-        # Reshape for line chart
-        timeline_long = rubric_timeline.melt(
-            id_vars=['date'],
-            value_vars=['communication', 'comprehension', 'critical_thinking', 'overall'],
-            var_name='skill',
-            value_name='score'
-        )
-        
-        render_line_chart(
-            timeline_long,
-            x='date',
-            y='score',
-            title='Skill Scores Over Time',
-            color='skill'
-        )
+    if perf_data is not None and not perf_data.empty:
+        render_line_chart(perf_data, 'date', 'avg_score', 'Your Progress Over Time')
     else:
-        st.info("Not enough data to show skill development timeline")
+        render_data_unavailable()
     
     st.divider()
     
-    # Recent Attempts Detail
-    st.subheader("🔍 Recent Attempt Details")
+    # RUBRIC SCORES
+    st.subheader("🎯 Skills Breakdown")
     
-    recent_attempts_query = f"""
+    rubric_query = f"""
     SELECT 
-        c.title as case_title,
-        g.individual_scores.communication as communication,
-        g.individual_scores.comprehension as comprehension,
-        g.individual_scores.critical_thinking as critical_thinking,
+        AVG(individual_scores.communication) as communication,
+        AVG(individual_scores.comprehension) as comprehension,
+        AVG(individual_scores.critical_thinking) as critical_thinking
+    FROM {get_table_ref('grades')}
+    WHERE user = '{student_id}'
+    """
+    rubric_data = run_query(rubric_query, client)
+    
+    if rubric_data is not None and not rubric_data.empty:
+        comm = float(rubric_data['communication'].iloc[0] or 0)
+        comp = float(rubric_data['comprehension'].iloc[0] or 0)
+        crit = float(rubric_data['critical_thinking'].iloc[0] or 0)
+        
+        render_radar_chart(
+            ['Communication', 'Comprehension', 'Critical Thinking'],
+            [comm, comp, crit],
+            'Your Rubric Scores'
+        )
+    else:
+        render_data_unavailable()
+    
+    st.divider()
+    
+    # RECENT GRADES TABLE
+    st.subheader("💬 Recent Feedback")
+    
+    recent_query = f"""
+    SELECT 
+        c.title as case_study,
         g.final_score,
-        g.overall_summary as performance_summary,
+        g.overall_summary,
         g.timestamp
     FROM {get_table_ref('grades')} g
     LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study = c.case_study_id
     WHERE g.user = '{student_id}'
     ORDER BY g.timestamp DESC
-    LIMIT 20
+    LIMIT 10
     """
-    recent_attempts = run_query(recent_attempts_query, client)
+    recent_data = run_query(recent_query, client)
     
-    if recent_attempts is not None and not recent_attempts.empty:
-        # Display with expandable feedback
-        for _, row in recent_attempts.iterrows():
-            with st.expander(f"**{row['case_title']}** - Attempt {row['attempt']} | Score: {row['final_score']:.1f} | {row['timestamp']}"):
-                cols = st.columns(3)
-                cols[0].metric("Communication", f"{row['communication']:.1f}")
-                cols[1].metric("Comprehension", f"{row['comprehension']:.1f}")
-                cols[2].metric("Critical Thinking", f"{row['critical_thinking']:.1f}")
-                
-                if row['performance_summary']:
-                    st.markdown("**Feedback:**")
-                    st.write(row['performance_summary'])
+    if recent_data is not None and not recent_data.empty:
+        render_data_table(recent_data, "Recent Grades", max_rows=10, key_suffix="recent")
     else:
-        st.info("No graded attempts found")
+        render_data_unavailable()
+
+if __name__ == "__main__":
+    render()
