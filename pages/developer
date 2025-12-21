@@ -1,6 +1,6 @@
 """
-Developer Dashboard - Telemetry & Observability
-System health, AI usage, performance monitoring, error tracking
+Developer Dashboard - VISUAL-RICH System Telemetry
+Charts: heatmaps, time series, error distributions, AI usage
 """
 
 import sys
@@ -9,381 +9,224 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from core.db import get_bigquery_client, run_query
-from core.settings import get_table_ref
-from components.ui import (
-    render_kpi_row, render_line_chart, render_bar_chart, render_heatmap,
-    render_pie_chart, render_data_table, render_global_filters,
-    render_alert_card, render_data_unavailable, format_number
-)
+from core.settings import get_table_ref, COLORS
+from core.theme import get_theme_colors
 
 def render():
-    """Render the enhanced developer dashboard"""
-    
     st.markdown('<h1 class="main-header">⚙️ Developer Dashboard</h1>', unsafe_allow_html=True)
-    st.write("**System Health & Observability** - Backend telemetry and AI monitoring")
+    st.markdown("**System Telemetry** - Visual monitoring and observability")
     
-    # Get BigQuery client
     client = get_bigquery_client()
     if client is None:
-        st.error("Failed to connect to BigQuery")
+        st.error("❌ Failed to connect")
         st.stop()
     
-    # Time Range Selector
-    time_range = st.selectbox(
-        "Time Range",
-        ["Last Hour", "Last 24 Hours", "Last 7 Days", "Last 30 Days"],
-        index=1
-    )
+    theme = get_theme_colors()
     
-    time_mapping = {
-        "Last Hour": "1 HOUR",
-        "Last 24 Hours": "1 DAY",
-        "Last 7 Days": "7 DAY",
-        "Last 30 Days": "30 DAY"
-    }
+    time_range = st.selectbox("Time Range", ["Last Hour", "Last 24 Hours", "Last 7 Days"], index=1)
+    time_map = {"Last Hour": "1 HOUR", "Last 24 Hours": "1 DAY", "Last 7 Days": "7 DAY"}
+    interval = time_map[time_range]
     
-    time_interval = time_mapping[time_range]
+    # SYSTEM HEALTH GAUGES
+    st.markdown("### 🏥 System Health")
     
-    st.divider()
+    total_q = f"SELECT COUNT(*) as val FROM {get_table_ref('backend_telemetry')} WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval})"
+    total_df = run_query(total_q, client)
+    total_req = total_df['val'].iloc[0] if total_df is not None else 0
     
-    # ========================================================================
-    # A. SYSTEM HEALTH KPI CARDS
-    # ========================================================================
+    error_q = f"SELECT COUNT(*) as val FROM {get_table_ref('backend_telemetry')} WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval}) AND derived_is_error = TRUE"
+    error_df = run_query(error_q, client)
+    errors = error_df['val'].iloc[0] if error_df is not None else 0
     
-    st.subheader("📊 System Health Metrics")
+    error_rate = (errors / total_req * 100) if total_req > 0 else 0
     
-    with st.spinner("Loading system metrics..."):
-        # Total Requests
-        total_req_query = f"""
-        SELECT COUNT(*) as total_requests
-        FROM {get_table_ref('backend_telemetry')}
-        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-        """
-        total_req_df = run_query(total_req_query, client)
-        total_requests = total_req_df['total_requests'].iloc[0] if total_req_df is not None and not total_req_df.empty else 0
-        
-        # Average Response Time
-        avg_resp_query = f"""
-        SELECT AVG(derived_response_time_ms) as avg_response
-        FROM {get_table_ref('backend_telemetry')}
-        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-        AND derived_response_time_ms IS NOT NULL
-        """
-        avg_resp_df = run_query(avg_resp_query, client)
-        avg_response = avg_resp_df['avg_response'].iloc[0] if avg_resp_df is not None and not avg_resp_df.empty else 0
-        
-        # P95 Response Time
-        p95_query = f"""
-        SELECT APPROX_QUANTILES(derived_response_time_ms, 100)[OFFSET(95)] as p95
-        FROM {get_table_ref('backend_telemetry')}
-        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-        AND derived_response_time_ms IS NOT NULL
-        """
-        p95_df = run_query(p95_query, client)
-        p95 = p95_df['p95'].iloc[0] if p95_df is not None and not p95_df.empty else 0
-        
-        # Error Count
-        error_query = f"""
-        SELECT COUNT(*) as error_count
-        FROM {get_table_ref('backend_telemetry')}
-        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-        AND derived_is_error = TRUE
-        """
-        error_df = run_query(error_query, client)
-        error_count = error_df['error_count'].iloc[0] if error_df is not None and not error_df.empty else 0
-        
-        # Error Rate
-        error_rate = (error_count / total_requests * 100) if total_requests > 0 else 0
-        
-        # AI Token Usage
-        token_query = f"""
-        SELECT SUM(derived_ai_total_tokens) as total_tokens
-        FROM {get_table_ref('backend_telemetry')}
-        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-        AND derived_ai_total_tokens IS NOT NULL
-        """
-        token_df = run_query(token_query, client)
-        total_tokens = token_df['total_tokens'].iloc[0] if token_df is not None and not token_df.empty else 0
-        
-        # Cost Estimate (assuming $0.002 per 1K tokens)
-        estimated_cost = (total_tokens / 1000) * 0.002 if total_tokens else 0
+    col1, col2, col3 = st.columns(3)
     
-    render_kpi_row([
-        {'title': 'Total Requests', 'value': format_number(total_requests), 'icon': '📡',
-         'help_text': f'Total requests in {time_range.lower()}'},
-        {'title': 'Avg Response Time', 'value': f"{avg_response:.0f} ms", 'icon': '⏱️',
-         'help_text': 'Average response time'},
-        {'title': 'P95 Response Time', 'value': f"{p95:.0f} ms", 'icon': '📈',
-         'help_text': '95th percentile response time'},
-        {'title': 'Error Rate', 'value': f"{error_rate:.2f}%", 'icon': '⚠️',
-         'help_text': 'Percentage of failed requests'}
-    ])
+    with col1:
+        fig = go.Figure(go.Indicator(
+            mode="number",
+            value=total_req,
+            title={'text': "📡 Total Requests"}
+        ))
+        fig.update_layout(height=150)
+        st.plotly_chart(fig, use_container_width=True)
     
-    render_kpi_row([
-        {'title': 'Error Count', 'value': format_number(error_count), 'icon': '❌',
-         'help_text': f'Total errors in {time_range.lower()}'},
-        {'title': 'AI Tokens Used', 'value': format_number(total_tokens), 'icon': '🤖',
-         'help_text': 'Total tokens consumed by AI'},
-        {'title': 'Estimated Cost', 'value': f"${estimated_cost:.2f}", 'icon': '💰',
-         'help_text': 'Estimated AI cost (GPT-4 rates)'},
-        {'title': 'System Status', 'value': '✅ Healthy' if error_rate < 5 else '⚠️ Issues', 'icon': '🏥',
-         'help_text': 'Overall system health'}
-    ])
+    with col2:
+        fig = go.Figure(go.Indicator(
+            mode="number",
+            value=errors,
+            title={'text': "❌ Errors"}
+        ))
+        fig.update_layout(height=150)
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col3:
+        fig = go.Figure(go.Indicator(
+            mode="number+gauge",
+            value=error_rate,
+            title={'text': "⚠️ Error Rate %"},
+            gauge={'axis': {'range': [0, 10]}, 
+                   'bar': {'color': COLORS['danger'] if error_rate > 5 else COLORS['success']}}
+        ))
+        fig.update_layout(height=150)
+        st.plotly_chart(fig, use_container_width=True)
     
     st.divider()
     
-    # ========================================================================
-    # B. BACKEND TELEMETRY - RESPONSE TIME
-    # ========================================================================
+    # RESPONSE TIME CHART
+    st.markdown("### ⏱️ Response Time Monitoring")
     
-    st.subheader("⏱️ Response Time Monitoring")
+    resp_q = f"""
+    SELECT 
+        TIMESTAMP_TRUNC(created_at, HOUR) as hour,
+        AVG(derived_response_time_ms) as avg_resp
+    FROM {get_table_ref('backend_telemetry')}
+    WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval})
+    AND derived_response_time_ms IS NOT NULL
+    GROUP BY hour
+    ORDER BY hour
+    """
+    resp_data = run_query(resp_q, client)
+    
+    if resp_data is not None and not resp_data.empty:
+        fig = px.line(resp_data, x='hour', y='avg_resp', markers=True)
+        fig.update_traces(line_color=COLORS['primary'], line_width=3)
+        fig.update_layout(
+            title="Average Response Time Over Time",
+            yaxis_title="Response Time (ms)",
+            height=350
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    st.divider()
+    
+    # ERROR DISTRIBUTION
+    st.markdown("### ❌ Error Analysis")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # Response Time Over Time
-        resp_time_query = f"""
-        SELECT 
-            TIMESTAMP_TRUNC(created_at, HOUR) as hour,
-            AVG(derived_response_time_ms) as avg_response,
-            APPROX_QUANTILES(derived_response_time_ms, 100)[OFFSET(95)] as p95
-        FROM {get_table_ref('backend_telemetry')}
-        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-        AND derived_response_time_ms IS NOT NULL
-        GROUP BY hour
-        ORDER BY hour
-        """
-        resp_time_data = run_query(resp_time_query, client)
-        
-        if resp_time_data is not None and not resp_time_data.empty:
-            render_line_chart(resp_time_data, 'hour', 'avg_response',
-                            'Average Response Time Over Time')
-        else:
-            render_data_unavailable()
-    
-    with col2:
-        # Top Slow Endpoints
-        slow_endpoints_query = f"""
+        error_endpoint_q = f"""
         SELECT 
             derived_endpoint_group as endpoint,
-            AVG(derived_response_time_ms) as avg_response,
-            COUNT(*) as request_count
+            COUNT(*) as errors
         FROM {get_table_ref('backend_telemetry')}
-        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-        AND derived_response_time_ms IS NOT NULL
-        AND derived_endpoint_group IS NOT NULL
-        GROUP BY endpoint
-        ORDER BY avg_response DESC
-        LIMIT 10
-        """
-        slow_endpoints = run_query(slow_endpoints_query, client)
-        
-        if slow_endpoints is not None and not slow_endpoints.empty:
-            render_bar_chart(slow_endpoints, 'endpoint', 'avg_response',
-                           'Slowest Endpoints', orientation='h')
-        else:
-            render_data_unavailable()
-    
-    st.divider()
-    
-    # ========================================================================
-    # C. ERROR MONITORING
-    # ========================================================================
-    
-    st.subheader("❌ Error Tracking & Analysis")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Error Trend
-        error_trend_query = f"""
-        SELECT 
-            TIMESTAMP_TRUNC(created_at, HOUR) as hour,
-            COUNTIF(derived_is_error = TRUE) as error_count,
-            COUNT(*) as total_count,
-            COUNTIF(derived_is_error = TRUE) * 100.0 / COUNT(*) as error_rate
-        FROM {get_table_ref('backend_telemetry')}
-        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-        GROUP BY hour
-        ORDER BY hour
-        """
-        error_trend = run_query(error_trend_query, client)
-        
-        if error_trend is not None and not error_trend.empty:
-            render_line_chart(error_trend, 'hour', 'error_rate',
-                            'Error Rate Over Time (%)')
-        else:
-            render_data_unavailable()
-    
-    with col2:
-        # Errors by Endpoint
-        error_endpoint_query = f"""
-        SELECT 
-            derived_endpoint_group as endpoint,
-            COUNT(*) as error_count
-        FROM {get_table_ref('backend_telemetry')}
-        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
+        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval})
         AND derived_is_error = TRUE
         AND derived_endpoint_group IS NOT NULL
         GROUP BY endpoint
-        ORDER BY error_count DESC
+        ORDER BY errors DESC
         """
-        error_endpoint = run_query(error_endpoint_query, client)
+        error_ep = run_query(error_endpoint_q, client)
         
-        if error_endpoint is not None and not error_endpoint.empty:
-            render_pie_chart(error_endpoint, 'error_count', 'endpoint',
-                           'Errors by Endpoint')
-        else:
-            render_data_unavailable()
-    
-    # Error Log Table
-    st.markdown("**🔍 Recent Errors**")
-    error_log_query = f"""
-    SELECT 
-        created_at,
-        span_name,
-        derived_endpoint_group as endpoint,
-        http_status_code,
-        derived_response_time_ms as response_time,
-        trace_id
-    FROM {get_table_ref('backend_telemetry')}
-    WHERE derived_is_error = TRUE
-    AND created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-    ORDER BY created_at DESC
-    LIMIT 100
-    """
-    error_log = run_query(error_log_query, client)
-    
-    if error_log is not None and not error_log.empty:
-        render_data_table(error_log, "Error Log", max_rows=50, key_suffix="errors")
-    else:
-        st.success("✅ No errors in selected time range!")
-    
-    st.divider()
-    
-    # ========================================================================
-    # D. AI USAGE MONITORING
-    # ========================================================================
-    
-    st.subheader("🤖 AI Usage & Cost Analysis")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Tokens Over Time
-        tokens_time_query = f"""
-        SELECT 
-            DATE(created_at) as date,
-            SUM(derived_ai_input_tokens) as input_tokens,
-            SUM(derived_ai_output_tokens) as output_tokens,
-            SUM(derived_ai_total_tokens) as total_tokens
-        FROM {get_table_ref('backend_telemetry')}
-        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-        AND derived_ai_total_tokens IS NOT NULL
-        GROUP BY date
-        ORDER BY date
-        """
-        tokens_time = run_query(tokens_time_query, client)
-        
-        if tokens_time is not None and not tokens_time.empty:
-            render_line_chart(tokens_time, 'date', 'total_tokens',
-                            'AI Token Usage Over Time')
-        else:
-            render_data_unavailable()
+        if error_ep is not None and not error_ep.empty:
+            fig = px.pie(error_ep, values='errors', names='endpoint')
+            fig.update_layout(title="Errors by Endpoint", height=350)
+            st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        # Input vs Output Tokens
-        if tokens_time is not None and not tokens_time.empty:
-            total_input = tokens_time['input_tokens'].sum()
-            total_output = tokens_time['output_tokens'].sum()
-            
-            token_dist = pd.DataFrame({
-                'type': ['Input Tokens', 'Output Tokens'],
-                'count': [total_input, total_output]
-            })
-            
-            render_pie_chart(token_dist, 'count', 'type',
-                           'Input vs Output Token Distribution')
-        else:
-            render_data_unavailable()
+        status_q = f"""
+        SELECT 
+            http_status_code as status,
+            COUNT(*) as count
+        FROM {get_table_ref('backend_telemetry')}
+        WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval})
+        AND http_status_code IS NOT NULL
+        AND http_status_code >= 400
+        GROUP BY status
+        ORDER BY count DESC
+        """
+        status_data = run_query(status_q, client)
+        
+        if status_data is not None and not status_data.empty:
+            fig = px.bar(status_data, x='status', y='count', color='count',
+                        color_continuous_scale='Reds')
+            fig.update_layout(title="Error Status Codes", height=350)
+            st.plotly_chart(fig, use_container_width=True)
     
-    # AI Usage Table
-    st.markdown("**📊 AI Request Details**")
-    ai_requests_query = f"""
+    st.divider()
+    
+    # AI USAGE
+    st.markdown("### 🤖 AI Usage & Cost")
+    
+    tokens_q = f"""
     SELECT 
-        created_at,
-        span_name,
-        derived_ai_input_tokens as input_tokens,
-        derived_ai_output_tokens as output_tokens,
-        derived_ai_total_tokens as total_tokens,
-        derived_response_time_ms as response_time,
-        derived_request_success as success
+        DATE(created_at) as date,
+        SUM(derived_ai_total_tokens) as total_tokens
     FROM {get_table_ref('backend_telemetry')}
-    WHERE derived_ai_total_tokens IS NOT NULL
-    AND created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {time_interval})
-    ORDER BY created_at DESC
-    LIMIT 100
+    WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval})
+    AND derived_ai_total_tokens IS NOT NULL
+    GROUP BY date
+    ORDER BY date
     """
-    ai_requests = run_query(ai_requests_query, client)
+    tokens_data = run_query(tokens_q, client)
     
-    if ai_requests is not None and not ai_requests.empty:
-        render_data_table(ai_requests, "AI Request Log", max_rows=50, key_suffix="ai")
-    else:
-        render_data_unavailable()
+    if tokens_data is not None and not tokens_data.empty:
+        tokens_data['cost'] = tokens_data['total_tokens'] / 1000 * 0.002
+        
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=tokens_data['date'],
+            y=tokens_data['total_tokens'],
+            name='Tokens',
+            marker_color=COLORS['primary']
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=tokens_data['date'],
+            y=tokens_data['cost'] * 10000,  # Scale for visibility
+            name='Cost ($)',
+            yaxis='y2',
+            line=dict(color=COLORS['warning'], width=3)
+        ))
+        
+        fig.update_layout(
+            title="AI Token Usage & Estimated Cost",
+            yaxis=dict(title='Tokens'),
+            yaxis2=dict(title='Cost ($)', overlaying='y', side='right'),
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
     
     st.divider()
     
-    # ========================================================================
-    # E. DATA QUALITY CHECKS
-    # ========================================================================
+    # ACTIVITY HEATMAP
+    st.markdown("### 🔥 Request Activity Heatmap")
     
-    st.subheader("🔍 Data Quality Monitoring")
-    
-    quality_checks = []
-    
-    # Check for null emails
-    null_email_query = f"""
-    SELECT 'Users without Email' as check_name, COUNT(*) as count
-    FROM {get_table_ref('user')}
-    WHERE email IS NULL
+    heat_q = f"""
+    SELECT 
+        EXTRACT(DAYOFWEEK FROM created_at) as day,
+        EXTRACT(HOUR FROM created_at) as hour,
+        COUNT(*) as requests
+    FROM {get_table_ref('backend_telemetry')}
+    WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+    GROUP BY day, hour
     """
-    null_email = run_query(null_email_query, client)
-    if null_email is not None:
-        quality_checks.append(null_email.iloc[0].to_dict())
+    heat_data = run_query(heat_q, client)
     
-    # Check for orphaned conversations
-    orphan_query = f"""
-    SELECT 'Conversations without Grades' as check_name, COUNT(*) as count
-    FROM {get_table_ref('conversation')} c
-    LEFT JOIN {get_table_ref('grades')} g ON c.conversation_id = g.conversation_id
-    WHERE g._id IS NULL
-    """
-    orphan = run_query(orphan_query, client)
-    if orphan is not None:
-        quality_checks.append(orphan.iloc[0].to_dict())
-    
-    if quality_checks:
-        quality_df = pd.DataFrame(quality_checks)
-        render_data_table(quality_df, "Data Quality Checks", max_rows=10, key_suffix="quality")
-    
-    st.divider()
-    
-    # System Health Summary
-    st.subheader("🏥 System Health Summary")
-    
-    if error_rate < 1:
-        render_alert_card("System Status: Excellent", 
-                         f"Error rate is {error_rate:.2f}% - well below threshold",
-                         severity="success")
-    elif error_rate < 5:
-        render_alert_card("System Status: Good",
-                         f"Error rate is {error_rate:.2f}% - within acceptable range",
-                         severity="info")
-    else:
-        render_alert_card("System Status: Attention Required",
-                         f"Error rate is {error_rate:.2f}% - above threshold, investigation recommended",
-                         severity="warning")
+    if heat_data is not None and not heat_data.empty:
+        pivot = heat_data.pivot(index='day', columns='hour', values='requests').fillna(0)
+        days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        
+        fig = go.Figure(data=go.Heatmap(
+            z=pivot.values,
+            x=pivot.columns,
+            y=[days[int(i-1)] for i in pivot.index],
+            colorscale='Reds'
+        ))
+        
+        fig.update_layout(
+            title="Request Volume by Day & Hour",
+            xaxis_title="Hour",
+            yaxis_title="Day",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
     render()
