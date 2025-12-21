@@ -1,533 +1,693 @@
+# pages/admin.py
 """
-Admin Dashboard - VISUAL-RICH Institutional Analytics
-Maximum visualizations: charts, graphs, heatmaps, trends
+MIND Analytics Dashboard — Admin Page (Streamlit)
+-------------------------------------------------
+This page is designed to be *read-only* against BigQuery and to cover:
+- Executive KPI cards
+- Adoption & usage trends
+- Learning performance overview
+- Engagement & behavior analytics
+- High-level system health telemetry
+
+Assumptions (edit if your table names differ):
+- Project: st.secrets["bigquery"]["project_id"]
+- Dataset: st.secrets["bigquery"]["dataset"]   (e.g., "mind_analytics")
+
+Curated/expected tables or views in BigQuery:
+- user
+- sessions
+- casestudy
+- grades
+- session_analytics   (from PostHog sessions export)
+- backend_telemetry   (from Logfire/OpenTelemetry export)
+
+If you only have raw exports (e.g., export_2025_12_11_080650), create views:
+  CREATE VIEW mind_analytics.session_analytics AS SELECT * FROM mind_analytics.export_2025_12_11_080650;
 """
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from __future__ import annotations
 
-import streamlit as st
+import re
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, Optional, Tuple
+
 import pandas as pd
+import streamlit as st
+
+# Plotly is usually the easiest in Streamlit for polished visuals
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
-from core.db import get_bigquery_client, run_query
-from core.settings import get_table_ref, COLORS
-from core.theme import get_theme_colors
 
-def create_kpi_chart(title, value, icon="📊", delta=None):
-    """Create visual KPI card"""
-    theme = get_theme_colors()
-    fig = go.Figure()
-    
-    fig.add_trace(go.Indicator(
-        mode = "number+delta" if delta else "number",
-        value = value,
-        delta = {'reference': delta} if delta else None,
-        title = {"text": f"{icon} {title}"},
-        domain = {'x': [0, 1], 'y': [0, 1]}
-    ))
-    
-    fig.update_layout(
-        height=150,
-        margin=dict(l=20, r=20, t=40, b=20),
-        paper_bgcolor=theme['bg'],
-        font=dict(color=theme['text'])
-    )
-    
-    return fig
+from google.cloud import bigquery
+from google.oauth2 import service_account
 
-def render():
-    """Render visual-rich admin dashboard"""
-    
-    st.markdown('<h1 class="main-header">🏛️ Admin Dashboard</h1>', unsafe_allow_html=True)
-    st.markdown("**Institutional Analytics** - Visual insights for leadership")
-    
-    client = get_bigquery_client()
-    if client is None:
-        st.error("❌ Failed to connect to BigQuery")
+
+# -----------------------------
+# Page config
+# -----------------------------
+st.set_page_config(
+    page_title="MIND Admin Dashboard",
+    page_icon="📊",
+    layout="wide",
+)
+
+st.title("Admin Dashboard")
+st.caption("Institution-level view: adoption, learning outcomes, engagement, and system health (BigQuery read-only).")
+
+
+# -----------------------------
+# BigQuery helpers (Read-only)
+# -----------------------------
+READ_ONLY_ALLOWED = re.compile(r"^\s*(WITH|SELECT)\b", re.IGNORECASE)
+
+def _get_bq_client() -> bigquery.Client:
+    bq_cfg = st.secrets.get("bigquery", {})
+    sa_cfg = st.secrets.get("gcp_service_account", {})
+
+    if not bq_cfg or not sa_cfg:
+        st.error("Missing BigQuery config in .streamlit/secrets.toml (bigquery + gcp_service_account).")
         st.stop()
-    
-    theme = get_theme_colors()
-    
-    # ========================================================================
-    # SECTION 1: EXECUTIVE KPI VISUALIZATIONS (4 GAUGE CHARTS)
-    # ========================================================================
-    
-    st.markdown("### 📊 Executive Metrics")
-    
-    with st.spinner("Loading metrics..."):
-        # Get KPI data
-        kpi_queries = {
-            'users': f"SELECT COUNT(DISTINCT user_id) as val FROM {get_table_ref('user')}",
-            'sessions': f"SELECT COUNT(*) as val FROM {get_table_ref('sessions')}",
-            'avg_score': f"SELECT AVG(final_score) as val FROM {get_table_ref('grades')}",
-            'engagement': f"SELECT AVG(derived_engagement_score) as val FROM {get_table_ref('session_analytics')} WHERE derived_engagement_score IS NOT NULL"
-        }
-        
-        kpis = {}
-        for key, query in kpi_queries.items():
-            df = run_query(query, client)
-            kpis[key] = df['val'].iloc[0] if df is not None and not df.empty else 0
-    
-    # Display as 4 gauge charts
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=kpis['users'],
-            title={'text': "👥 Total Users"},
-            gauge={'axis': {'range': [None, kpis['users'] * 1.5]},
-                   'bar': {'color': COLORS['primary']}}
-        ))
-        fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-        st.plotly_chart(fig, use_container_width=True, key="gauge1")
-    
-    with col2:
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=kpis['sessions'],
-            title={'text': "🎯 Sessions"},
-            gauge={'axis': {'range': [None, kpis['sessions'] * 1.5]},
-                   'bar': {'color': COLORS['secondary']}}
-        ))
-        fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-        st.plotly_chart(fig, use_container_width=True, key="gauge2")
-    
-    with col3:
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=kpis['avg_score'],
-            title={'text': "📈 Avg Score"},
-            gauge={'axis': {'range': [0, 100]},
-                   'bar': {'color': COLORS['success']}}
-        ))
-        fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-        st.plotly_chart(fig, use_container_width=True, key="gauge3")
-    
-    with col4:
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=kpis['engagement'],
-            title={'text': "⚡ Engagement"},
-            gauge={'axis': {'range': [0, 100]},
-                   'bar': {'color': COLORS['warning']}}
-        ))
-        fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-        st.plotly_chart(fig, use_container_width=True, key="gauge4")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 2: USER GROWTH & ADOPTION (LINE + AREA CHARTS)
-    # ========================================================================
-    
-    st.markdown("### 📈 User Growth & Adoption")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Daily Active Users - LINE CHART
-        dau_query = f"""
-        SELECT 
-            DATE(timestamp) as date,
-            COUNT(DISTINCT user) as active_users
-        FROM {get_table_ref('conversation')}
-        WHERE timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
-        GROUP BY date
-        ORDER BY date
-        """
-        dau_data = run_query(dau_query, client)
-        
-        if dau_data is not None and not dau_data.empty:
-            fig = px.line(dau_data, x='date', y='active_users',
-                         title='📅 Daily Active Users (Last 30 Days)',
-                         markers=True)
-            fig.update_traces(line_color=COLORS['primary'], line_width=3)
-            fig.update_layout(
-                height=350,
-                hovermode='x unified',
-                plot_bgcolor=theme['bg'],
-                paper_bgcolor=theme['bg'],
-                font=dict(color=theme['text'])
-            )
-            st.plotly_chart(fig, use_container_width=True, key="dau_line")
-        else:
-            st.info("📊 No DAU data available")
-    
-    with col2:
-        # Users by Role - PIE CHART
-        role_query = f"""
-        SELECT 
-            COALESCE(role, 'Unknown') as role,
-            COUNT(*) as count
-        FROM {get_table_ref('user')}
-        GROUP BY role
-        """
-        role_data = run_query(role_query, client)
-        
-        if role_data is not None and not role_data.empty:
-            fig = px.pie(role_data, values='count', names='role',
-                        title='👥 Users by Role',
-                        color_discrete_sequence=px.colors.qualitative.Set3)
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            fig.update_layout(
-                height=350,
-                paper_bgcolor=theme['bg'],
-                font=dict(color=theme['text'])
-            )
-            st.plotly_chart(fig, use_container_width=True, key="role_pie")
-        else:
-            st.info("📊 No role data available")
-    
-    # Cumulative Users - AREA CHART
-    cumulative_query = f"""
-    WITH daily_new AS (
-        SELECT 
-            DATE(date_added) as date,
-            COUNT(*) as new_users
-        FROM {get_table_ref('user')}
-        WHERE date_added >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
-        GROUP BY date
-        ORDER BY date
-    )
-    SELECT 
-        date,
-        SUM(new_users) OVER (ORDER BY date) as cumulative_users
-    FROM daily_new
-    """
-    cum_data = run_query(cumulative_query, client)
-    
-    if cum_data is not None and not cum_data.empty:
-        fig = px.area(cum_data, x='date', y='cumulative_users',
-                     title='📈 Cumulative User Growth (Last 90 Days)')
-        fig.update_traces(fillcolor=COLORS['primary'], line_color=COLORS['primary'])
-        fig.update_layout(
-            height=300,
-            plot_bgcolor=theme['bg'],
-            paper_bgcolor=theme['bg'],
-            font=dict(color=theme['text'])
-        )
-        st.plotly_chart(fig, use_container_width=True, key="cumulative_area")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 3: LEARNING PERFORMANCE (BAR + HISTOGRAM + BOX PLOT)
-    # ========================================================================
-    
-    st.markdown("### 📚 Learning Performance Analytics")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Avg Score by Case Study - BAR CHART
-        case_score_query = f"""
-        SELECT 
-            c.title,
-            AVG(g.final_score) as avg_score,
-            COUNT(g._id) as attempts
-        FROM {get_table_ref('casestudy')} c
-        LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study
-        GROUP BY c.title
-        ORDER BY avg_score DESC
-        """
-        case_data = run_query(case_score_query, client)
-        
-        if case_data is not None and not case_data.empty:
-            fig = px.bar(case_data, x='avg_score', y='title',
-                        orientation='h',
-                        title='📊 Average Score by Case Study',
-                        color='avg_score',
-                        color_continuous_scale='RdYlGn')
-            fig.update_layout(
-                height=400,
-                showlegend=False,
-                plot_bgcolor=theme['bg'],
-                paper_bgcolor=theme['bg'],
-                font=dict(color=theme['text'])
-            )
-            st.plotly_chart(fig, use_container_width=True, key="case_bar")
-        else:
-            st.info("📊 No case study data available")
-    
-    with col2:
-        # Score Distribution - HISTOGRAM
-        score_dist_query = f"SELECT final_score FROM {get_table_ref('grades')}"
-        score_data = run_query(score_dist_query, client)
-        
-        if score_data is not None and not score_data.empty:
-            fig = px.histogram(score_data, x='final_score',
-                              nbins=20,
-                              title='📉 Score Distribution',
-                              color_discrete_sequence=[COLORS['primary']])
-            fig.update_layout(
-                height=400,
-                xaxis_title="Score",
-                yaxis_title="Count",
-                plot_bgcolor=theme['bg'],
-                paper_bgcolor=theme['bg'],
-                font=dict(color=theme['text'])
-            )
-            st.plotly_chart(fig, use_container_width=True, key="score_hist")
-        else:
-            st.info("📊 No score data available")
-    
-    # Performance Trend - MULTI-LINE CHART
-    perf_trend_query = f"""
-    SELECT 
-        DATE(timestamp) as date,
-        AVG(final_score) as avg_score,
-        MIN(final_score) as min_score,
-        MAX(final_score) as max_score
-    FROM {get_table_ref('grades')}
-    WHERE timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
-    GROUP BY date
-    ORDER BY date
-    """
-    perf_data = run_query(perf_trend_query, client)
-    
-    if perf_data is not None and not perf_data.empty:
-        fig = go.Figure()
-        
-        fig.add_trace(go.Scatter(
-            x=perf_data['date'], y=perf_data['avg_score'],
-            name='Average',
-            line=dict(color=COLORS['primary'], width=3)
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=perf_data['date'], y=perf_data['max_score'],
-            name='Max',
-            line=dict(color=COLORS['success'], width=2, dash='dash')
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=perf_data['date'], y=perf_data['min_score'],
-            name='Min',
-            line=dict(color=COLORS['danger'], width=2, dash='dash')
-        ))
-        
-        fig.update_layout(
-            title='📈 Performance Trend (Avg/Min/Max)',
-            height=350,
-            hovermode='x unified',
-            plot_bgcolor=theme['bg'],
-            paper_bgcolor=theme['bg'],
-            font=dict(color=theme['text'])
-        )
-        
-        st.plotly_chart(fig, use_container_width=True, key="perf_trend")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 4: ENGAGEMENT ANALYTICS (SCATTER + HEATMAP)
-    # ========================================================================
-    
-    st.markdown("### ⚡ Engagement Analytics")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Session Length Distribution - VIOLIN PLOT
-        session_len_query = f"""
-        SELECT derived_session_length_minutes as length
-        FROM {get_table_ref('session_analytics')}
-        WHERE derived_session_length_minutes IS NOT NULL
-        AND derived_session_length_minutes BETWEEN 1 AND 120
-        """
-        session_data = run_query(session_len_query, client)
-        
-        if session_data is not None and not session_data.empty:
-            fig = px.violin(session_data, y='length',
-                           title='🎻 Session Length Distribution',
-                           box=True,
-                           color_discrete_sequence=[COLORS['secondary']])
-            fig.update_layout(
-                height=400,
-                yaxis_title="Minutes",
-                plot_bgcolor=theme['bg'],
-                paper_bgcolor=theme['bg'],
-                font=dict(color=theme['text'])
-            )
-            st.plotly_chart(fig, use_container_width=True, key="violin")
-        else:
-            st.info("📊 No session data available")
-    
-    with col2:
-        # Engagement Score Trend - LINE CHART
-        eng_trend_query = f"""
-        SELECT 
-            DATE(start_timestamp) as date,
-            AVG(derived_engagement_score) as avg_eng
-        FROM {get_table_ref('session_analytics')}
-        WHERE start_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
-        AND derived_engagement_score IS NOT NULL
-        GROUP BY date
-        ORDER BY date
-        """
-        eng_data = run_query(eng_trend_query, client)
-        
-        if eng_data is not None and not eng_data.empty:
-            fig = px.line(eng_data, x='date', y='avg_eng',
-                         title='⚡ Engagement Score Trend',
-                         markers=True)
-            fig.update_traces(line_color=COLORS['warning'], line_width=3)
-            fig.update_layout(
-                height=400,
-                hovermode='x unified',
-                plot_bgcolor=theme['bg'],
-                paper_bgcolor=theme['bg'],
-                font=dict(color=theme['text'])
-            )
-            st.plotly_chart(fig, use_container_width=True, key="eng_line")
-        else:
-            st.info("📊 No engagement data available")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 5: LEARNING FUNNEL (FUNNEL CHART)
-    # ========================================================================
-    
-    st.markdown("### 🎯 Learning Journey Funnel")
-    
-    funnel_query = f"""
-    SELECT 'Registered Users' as stage, COUNT(DISTINCT user_id) as count, 1 as ord FROM {get_table_ref('user')}
-    UNION ALL
-    SELECT 'Started Sessions' as stage, COUNT(DISTINCT _id) as count, 2 as ord FROM {get_table_ref('sessions')}
-    UNION ALL
-    SELECT 'Had Conversations' as stage, COUNT(DISTINCT user) as count, 3 as ord FROM {get_table_ref('conversation')}
-    UNION ALL
-    SELECT 'Received Grades' as stage, COUNT(DISTINCT user) as count, 4 as ord FROM {get_table_ref('grades')}
-    ORDER BY ord
-    """
-    funnel_data = run_query(funnel_query, client)
-    
-    if funnel_data is not None and not funnel_data.empty:
-        fig = go.Figure(go.Funnel(
-            y=funnel_data['stage'],
-            x=funnel_data['count'],
-            textinfo="value+percent initial",
-            marker=dict(color=[COLORS['primary'], COLORS['secondary'], 
-                              COLORS['success'], COLORS['warning']])
-        ))
-        
-        fig.update_layout(
-            title='🎯 User Conversion Funnel',
-            height=400,
-            paper_bgcolor=theme['bg'],
-            font=dict(color=theme['text'])
-        ))
-        
-        st.plotly_chart(fig, use_container_width=True, key="funnel")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 6: ACTIVITY HEATMAP
-    # ========================================================================
-    
-    st.markdown("### 🔥 Activity Heatmap (Day × Hour)")
-    
-    heatmap_query = f"""
-    SELECT 
-        EXTRACT(DAYOFWEEK FROM timestamp) as day,
-        EXTRACT(HOUR FROM timestamp) as hour,
-        COUNT(*) as activity_count
-    FROM {get_table_ref('conversation')}
-    WHERE timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
-    GROUP BY day, hour
-    ORDER BY day, hour
-    """
-    heatmap_data = run_query(heatmap_query, client)
-    
-    if heatmap_data is not None and not heatmap_data.empty:
-        # Pivot for heatmap
-        pivot = heatmap_data.pivot(index='day', columns='hour', values='activity_count').fillna(0)
-        
-        day_labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-        
-        fig = go.Figure(data=go.Heatmap(
-            z=pivot.values,
-            x=pivot.columns,
-            y=[day_labels[int(i-1)] for i in pivot.index],
-            colorscale='Reds',
-            hoverongaps=False
-        ))
-        
-        fig.update_layout(
-            title='🔥 User Activity by Day & Hour',
-            xaxis_title="Hour of Day",
-            yaxis_title="Day of Week",
-            height=400,
-            plot_bgcolor=theme['bg'],
-            paper_bgcolor=theme['bg'],
-            font=dict(color=theme['text'])
-        )
-        
-        st.plotly_chart(fig, use_container_width=True, key="heatmap")
-    else:
-        st.info("📊 No activity data for heatmap")
-    
-    st.divider()
-    
-    # ========================================================================
-    # SECTION 7: DEPARTMENT COMPARISON (GROUPED BAR)
-    # ========================================================================
-    
-    st.markdown("### 🏢 Department Performance Comparison")
-    
-    dept_query = f"""
-    SELECT 
-        COALESCE(u.department, 'No Department') as dept,
-        COUNT(DISTINCT u.user_id) as students,
-        AVG(g.final_score) as avg_score,
-        COUNT(g._id) as attempts
-    FROM {get_table_ref('user')} u
-    LEFT JOIN {get_table_ref('grades')} g ON u.user_id = g.user
-    GROUP BY dept
-    HAVING students > 0
-    ORDER BY avg_score DESC
-    """
-    dept_data = run_query(dept_query, client)
-    
-    if dept_data is not None and not dept_data.empty:
-        fig = go.Figure()
-        
-        fig.add_trace(go.Bar(
-            name='Avg Score',
-            x=dept_data['dept'],
-            y=dept_data['avg_score'],
-            marker_color=COLORS['primary']
-        ))
-        
-        fig.add_trace(go.Bar(
-            name='Students',
-            x=dept_data['dept'],
-            y=dept_data['students'],
-            marker_color=COLORS['secondary'],
-            yaxis='y2'
-        ))
-        
-        fig.update_layout(
-            title='🏢 Department Performance: Score vs Student Count',
-            barmode='group',
-            height=400,
-            yaxis=dict(title='Average Score'),
-            yaxis2=dict(title='Number of Students', overlaying='y', side='right'),
-            plot_bgcolor=theme['bg'],
-            paper_bgcolor=theme['bg'],
-            font=dict(color=theme['text'])
-        )
-        
-        st.plotly_chart(fig, use_container_width=True, key="dept_bar")
-    else:
-        st.info("📊 No department data available")
 
-if __name__ == "__main__":
-    render()
+    creds = service_account.Credentials.from_service_account_info(dict(sa_cfg))
+    return bigquery.Client(project=bq_cfg["project_id"], credentials=creds, location=bq_cfg.get("location", None))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def bq_query_df(sql: str, params: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+    """
+    Run a READ-ONLY BigQuery query and return a DataFrame.
+    Blocks DDL/DML by refusing non-SELECT/WITH queries.
+    """
+    if not READ_ONLY_ALLOWED.match(sql):
+        raise ValueError("Blocked: only SELECT/WITH queries are allowed in this dashboard (read-only).")
+
+    client = _get_bq_client()
+    job_config = bigquery.QueryJobConfig()
+
+    if params:
+        bq_params = []
+        for k, v in params.items():
+            # Infer param type
+            if isinstance(v, (datetime, pd.Timestamp)):
+                bq_params.append(bigquery.ScalarQueryParameter(k, "TIMESTAMP", v))
+            elif isinstance(v, date):
+                bq_params.append(bigquery.ScalarQueryParameter(k, "DATE", v))
+            elif isinstance(v, bool):
+                bq_params.append(bigquery.ScalarQueryParameter(k, "BOOL", v))
+            elif isinstance(v, int):
+                bq_params.append(bigquery.ScalarQueryParameter(k, "INT64", v))
+            elif isinstance(v, float):
+                bq_params.append(bigquery.ScalarQueryParameter(k, "FLOAT64", v))
+            else:
+                bq_params.append(bigquery.ScalarQueryParameter(k, "STRING", str(v)))
+
+        job_config.query_parameters = bq_params
+
+    return client.query(sql, job_config=job_config).to_dataframe()
+
+
+def fqtn(table_name: str) -> str:
+    """Fully-qualified table name using secrets project + dataset."""
+    bq_cfg = st.secrets["bigquery"]
+    return f"`{bq_cfg['project_id']}.{bq_cfg['dataset']}.{table_name}`"
+
+
+# -----------------------------
+# Sidebar filters
+# -----------------------------
+with st.sidebar:
+    st.header("Filters")
+
+    # Default: last 30 days
+    today = datetime.utcnow().date()
+    default_start = today - timedelta(days=30)
+
+    start_date, end_date = st.date_input(
+        "Date range (UTC)",
+        value=(default_start, today),
+        max_value=today,
+    )
+
+    # Optional: case study filter if casestudy table exists
+    case_study_options = ["All"]
+    try:
+        cs = bq_query_df(
+            f"""
+            SELECT DISTINCT CAST(case_study_id AS STRING) AS case_study_id,
+                   COALESCE(title, CAST(case_study_id AS STRING)) AS title
+            FROM {fqtn("casestudy")}
+            ORDER BY title
+            """
+        )
+        case_study_options += [f"{row['title']} ({row['case_study_id']})" for _, row in cs.iterrows()]
+    except Exception:
+        # If casestudy table not available, keep filter minimal
+        pass
+
+    case_study_choice = st.selectbox("Case Study", case_study_options)
+
+    cohort = st.text_input("Cohort (optional)", value="").strip()
+
+    st.divider()
+    st.subheader("Derived field labeling")
+    st.caption("Derived fields are shown with “(derived)” in chart titles/labels.")
+
+
+def parse_case_study_id(choice: str) -> Optional[str]:
+    if choice == "All":
+        return None
+    m = re.search(r"\(([^)]+)\)\s*$", choice)
+    return m.group(1) if m else None
+
+
+case_study_id = parse_case_study_id(case_study_choice)
+start_ts = datetime.combine(start_date, datetime.min.time())
+end_ts = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+
+
+# -----------------------------
+# Query building blocks
+# -----------------------------
+def where_common(timestamp_col: str) -> Tuple[str, Dict[str, Any]]:
+    """
+    Creates a safe WHERE clause and query params for a time range.
+    """
+    clause = f"WHERE {timestamp_col} >= @start_ts AND {timestamp_col} < @end_ts"
+    params = {"start_ts": start_ts, "end_ts": end_ts}
+    return clause, params
+
+
+def cohort_filter_sql(alias: str = "u") -> str:
+    if cohort:
+        # cohort is in user table (per your dictionary)
+        return f" AND LOWER({alias}.cohort) = LOWER(@cohort)"
+    return ""
+
+
+# -----------------------------
+# A) Executive KPI Cards
+# -----------------------------
+st.subheader("Executive Overview")
+
+kpi_sql = f"""
+WITH
+users_in_scope AS (
+  SELECT
+    user_id,
+    student_email,
+    role,
+    cohort,
+    TIMESTAMP(date_added) AS date_added_ts,
+    TIMESTAMP(date_updated) AS date_updated_ts
+  FROM {fqtn("user")}
+),
+sessions_in_scope AS (
+  SELECT
+    -- sessions table (learning sessions)
+    *
+  FROM {fqtn("sessions")}
+  WHERE start_time >= @start_ts AND start_time < @end_ts
+),
+grades_in_scope AS (
+  SELECT *
+  FROM {fqtn("grades")}
+  WHERE timestamp >= @start_ts AND timestamp < @end_ts
+),
+telemetry_in_scope AS (
+  SELECT *
+  FROM {fqtn("backend_telemetry")}
+  WHERE created_at >= @start_ts AND created_at < @end_ts
+)
+SELECT
+  -- Adoption
+  (SELECT COUNT(*) FROM users_in_scope {("WHERE LOWER(cohort)=LOWER(@cohort)" if cohort else "")}) AS total_users,
+  (SELECT COUNT(DISTINCT user_id) FROM sessions_in_scope) AS active_users,  -- users with sessions in range
+  (SELECT COUNT(*) FROM sessions_in_scope) AS total_sessions,
+
+  -- Learning
+  (SELECT COUNT(DISTINCT case_study_id) FROM sessions_in_scope) AS case_studies_launched,
+  (SELECT AVG(final_score) FROM grades_in_scope) AS avg_final_score,
+
+  -- Engagement from PostHog session_analytics (if available)
+  (
+    SELECT AVG(SAFE_CAST(session_duration AS FLOAT64))
+    FROM {fqtn("session_analytics")}
+    WHERE TIMESTAMP($start_timestamp) >= @start_ts AND TIMESTAMP($start_timestamp) < @end_ts
+  ) AS avg_session_duration_seconds__derived,
+
+  -- System health from telemetry (high-level)
+  (
+    SELECT SAFE_DIVIDE(SUM(CASE WHEN SAFE_CAST(http_response_status_code AS INT64) >= 500 THEN 1 ELSE 0 END), COUNT(*))
+    FROM telemetry_in_scope
+  ) AS error_rate__derived,
+
+  (
+    SELECT APPROX_QUANTILES(SAFE_CAST(duration AS FLOAT64), 100)[OFFSET(95)]
+    FROM telemetry_in_scope
+    WHERE duration IS NOT NULL
+  ) AS p95_duration__derived
+"""
+
+kpi_params = {"start_ts": start_ts, "end_ts": end_ts}
+if cohort:
+    kpi_params["cohort"] = cohort
+
+kpi_df = bq_query_df(kpi_sql, kpi_params)
+
+if kpi_df.empty:
+    st.warning("No data returned for KPIs in the selected range.")
+else:
+    k = kpi_df.iloc[0].to_dict()
+
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Total Users", f"{int(k.get('total_users', 0) or 0):,}")
+    c2.metric("Active Users (range)", f"{int(k.get('active_users', 0) or 0):,}")
+    c3.metric("Total Sessions", f"{int(k.get('total_sessions', 0) or 0):,}")
+    c4.metric("Case Studies Launched", f"{int(k.get('case_studies_launched', 0) or 0):,}")
+    c5.metric("Avg Final Score (derived)", f"{(k.get('avg_final_score') or 0):.2f}")
+    avg_dur = (k.get("avg_session_duration_seconds__derived") or 0) / 60.0
+    c6.metric("Avg Session Duration mins (derived)", f"{avg_dur:.1f}")
+
+
+st.divider()
+
+
+# -----------------------------
+# B) User & Adoption Analytics
+# -----------------------------
+st.subheader("Adoption & Usage")
+
+left, right = st.columns([2, 1])
+
+with left:
+    dau_sql = f"""
+    WITH session_days AS (
+      SELECT
+        DATE(start_time) AS day,
+        user_id
+      FROM {fqtn("sessions")}
+      WHERE start_time >= @start_ts AND start_time < @end_ts
+    )
+    SELECT
+      day,
+      COUNT(DISTINCT user_id) AS active_users
+    FROM session_days
+    GROUP BY day
+    ORDER BY day
+    """
+    dau = bq_query_df(dau_sql, {"start_ts": start_ts, "end_ts": end_ts})
+    if not dau.empty:
+        fig = px.line(dau, x="day", y="active_users", markers=True, title="Daily Active Users")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No sessions found for Daily Active Users in the selected range.")
+
+with right:
+    role_sql = f"""
+    SELECT
+      LOWER(role) AS role,
+      COUNT(*) AS users
+    FROM {fqtn("user")}
+    {("WHERE LOWER(cohort)=LOWER(@cohort)" if cohort else "")}
+    GROUP BY role
+    ORDER BY users DESC
+    """
+    params = {"cohort": cohort} if cohort else None
+    roles = bq_query_df(role_sql, params)
+    if not roles.empty:
+        fig = px.pie(roles, names="role", values="users", title="Users by Role")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No user-role data found.")
+
+
+# New users trend (by date_added)
+new_users_sql = f"""
+SELECT
+  DATE(TIMESTAMP(date_added)) AS day,
+  COUNT(*) AS new_users
+FROM {fqtn("user")}
+WHERE TIMESTAMP(date_added) >= @start_ts AND TIMESTAMP(date_added) < @end_ts
+{(" AND LOWER(cohort)=LOWER(@cohort)" if cohort else "")}
+GROUP BY day
+ORDER BY day
+"""
+params = {"start_ts": start_ts, "end_ts": end_ts}
+if cohort:
+    params["cohort"] = cohort
+
+new_users = bq_query_df(new_users_sql, params)
+if not new_users.empty:
+    fig = px.bar(new_users, x="day", y="new_users", title="New Users Over Time")
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# User table (top active)
+st.markdown("#### Users (Top Activity)")
+user_table_sql = f"""
+WITH s AS (
+  SELECT user_id, COUNT(*) AS total_sessions__derived, MAX(last_activity) AS last_activity
+  FROM {fqtn("sessions")}
+  WHERE start_time >= @start_ts AND start_time < @end_ts
+  GROUP BY user_id
+),
+u AS (
+  SELECT
+    user_id,
+    name,
+    student_email,
+    role,
+    department,
+    cohort
+  FROM {fqtn("user")}
+)
+SELECT
+  u.user_id,
+  u.name,
+  u.student_email,
+  u.role,
+  u.department,
+  u.cohort,
+  COALESCE(s.total_sessions__derived, 0) AS `total_sessions (derived)`,
+  s.last_activity
+FROM u
+LEFT JOIN s USING (user_id)
+WHERE 1=1
+{cohort_filter_sql("u")}
+ORDER BY `total_sessions (derived)` DESC
+LIMIT 200
+"""
+params = {"start_ts": start_ts, "end_ts": end_ts}
+if cohort:
+    params["cohort"] = cohort
+
+users_tbl = bq_query_df(user_table_sql, params)
+st.dataframe(users_tbl, use_container_width=True, height=340)
+
+st.divider()
+
+
+# -----------------------------
+# C) Learning & Performance Overview
+# -----------------------------
+st.subheader("Learning Outcomes & Performance")
+
+perf_cols = st.columns([1.2, 1.2, 1.6])
+
+# Avg final score by case study
+with perf_cols[0]:
+    perf_by_case_sql = f"""
+    SELECT
+      CAST(case_study_id AS STRING) AS case_study_id,
+      COUNT(*) AS graded_attempts,
+      AVG(final_score) AS avg_final_score__derived
+    FROM {fqtn("grades")}
+    WHERE timestamp >= @start_ts AND timestamp < @end_ts
+    {(" AND CAST(case_study_id AS STRING) = @case_study_id" if case_study_id else "")}
+    GROUP BY case_study_id
+    ORDER BY avg_final_score__derived DESC
+    LIMIT 30
+    """
+    params = {"start_ts": start_ts, "end_ts": end_ts}
+    if case_study_id:
+        params["case_study_id"] = case_study_id
+
+    perf_case = bq_query_df(perf_by_case_sql, params)
+    if not perf_case.empty:
+        fig = px.bar(
+            perf_case,
+            x="avg_final_score__derived",
+            y="case_study_id",
+            orientation="h",
+            title="Avg Final Score by Case Study (derived)",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No grades found for Avg Final Score by Case Study.")
+
+# Score distribution
+with perf_cols[1]:
+    score_dist_sql = f"""
+    SELECT final_score
+    FROM {fqtn("grades")}
+    WHERE timestamp >= @start_ts AND timestamp < @end_ts
+    {(" AND CAST(case_study_id AS STRING) = @case_study_id" if case_study_id else "")}
+    AND final_score IS NOT NULL
+    """
+    params = {"start_ts": start_ts, "end_ts": end_ts}
+    if case_study_id:
+        params["case_study_id"] = case_study_id
+
+    scores = bq_query_df(score_dist_sql, params)
+    if not scores.empty:
+        fig = px.histogram(scores, x="final_score", nbins=20, title="Final Score Distribution")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No grade data for Final Score distribution.")
+
+# Performance over time
+with perf_cols[2]:
+    perf_trend_sql = f"""
+    SELECT
+      DATE(timestamp) AS day,
+      AVG(final_score) AS avg_final_score__derived,
+      COUNT(*) AS graded_attempts
+    FROM {fqtn("grades")}
+    WHERE timestamp >= @start_ts AND timestamp < @end_ts
+    {(" AND CAST(case_study_id AS STRING) = @case_study_id" if case_study_id else "")}
+    GROUP BY day
+    ORDER BY day
+    """
+    params = {"start_ts": start_ts, "end_ts": end_ts}
+    if case_study_id:
+        params["case_study_id"] = case_study_id
+
+    perf_trend = bq_query_df(perf_trend_sql, params)
+    if not perf_trend.empty:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=perf_trend["day"], y=perf_trend["avg_final_score__derived"],
+                                 mode="lines+markers", name="Avg Final Score (derived)"))
+        fig.update_layout(title="Performance Trend Over Time", xaxis_title="Day", yaxis_title="Score")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No grade data for performance trend.")
+
+# Grades table
+st.markdown("#### Grades (Latest)")
+grades_tbl_sql = f"""
+SELECT
+  timestamp,
+  user_id,
+  CAST(case_study_id AS STRING) AS case_study_id,
+  attempt,
+  communication,
+  comprehension,
+  critical_thinking,
+  final_score,
+  performance_summary,
+  overall_summary
+FROM {fqtn("grades")}
+WHERE timestamp >= @start_ts AND timestamp < @end_ts
+{(" AND CAST(case_study_id AS STRING) = @case_study_id" if case_study_id else "")}
+ORDER BY timestamp DESC
+LIMIT 200
+"""
+params = {"start_ts": start_ts, "end_ts": end_ts}
+if case_study_id:
+    params["case_study_id"] = case_study_id
+
+grades_tbl = bq_query_df(grades_tbl_sql, params)
+st.dataframe(grades_tbl, use_container_width=True, height=340)
+
+st.divider()
+
+
+# -----------------------------
+# D) Engagement & Behavior (PostHog sessions)
+# -----------------------------
+st.subheader("Engagement & Behavior")
+
+eng_cols = st.columns([1.2, 1.2, 1.6])
+
+# Session duration distribution
+with eng_cols[0]:
+    sess_dur_sql = f"""
+    SELECT
+      SAFE_CAST($session_duration AS FLOAT64) / 60.0 AS session_duration_minutes__derived
+    FROM {fqtn("session_analytics")}
+    WHERE TIMESTAMP($start_timestamp) >= @start_ts AND TIMESTAMP($start_timestamp) < @end_ts
+    AND $session_duration IS NOT NULL
+    """
+    dur = bq_query_df(sess_dur_sql, {"start_ts": start_ts, "end_ts": end_ts})
+    if not dur.empty:
+        fig = px.histogram(dur, x="session_duration_minutes__derived", nbins=30,
+                           title="Session Duration (minutes) (derived)")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No PostHog session_analytics duration data found.")
+
+# Bounce rate over time
+with eng_cols[1]:
+    bounce_sql = f"""
+    SELECT
+      DATE(TIMESTAMP($start_timestamp)) AS day,
+      SAFE_DIVIDE(SUM(CASE WHEN $is_bounce THEN 1 ELSE 0 END), COUNT(*)) AS bounce_rate__derived
+    FROM {fqtn("session_analytics")}
+    WHERE TIMESTAMP($start_timestamp) >= @start_ts AND TIMESTAMP($start_timestamp) < @end_ts
+    GROUP BY day
+    ORDER BY day
+    """
+    bounce = bq_query_df(bounce_sql, {"start_ts": start_ts, "end_ts": end_ts})
+    if not bounce.empty:
+        fig = px.line(bounce, x="day", y="bounce_rate__derived", markers=True,
+                      title="Bounce Rate Over Time (derived)")
+        fig.update_yaxes(tickformat=".0%")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No bounce rate data found in session_analytics.")
+
+# Engagement proxy trend (navigation depth)
+with eng_cols[2]:
+    nav_depth_sql = f"""
+    SELECT
+      DATE(TIMESTAMP($start_timestamp)) AS day,
+      AVG(SAFE_CAST($pageview_count AS FLOAT64) + SAFE_CAST($autocapture_count AS FLOAT64)) AS navigation_depth__derived,
+      COUNT(*) AS sessions
+    FROM {fqtn("session_analytics")}
+    WHERE TIMESTAMP($start_timestamp) >= @start_ts AND TIMESTAMP($start_timestamp) < @end_ts
+    GROUP BY day
+    ORDER BY day
+    """
+    nav = bq_query_df(nav_depth_sql, {"start_ts": start_ts, "end_ts": end_ts})
+    if not nav.empty:
+        fig = px.area(nav, x="day", y="navigation_depth__derived",
+                      title="Navigation Depth (pageviews + autocaptures) (derived)")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No navigation depth data found in session_analytics.")
+
+# Top sessions table
+st.markdown("#### Sessions (Top by Duration)")
+top_sessions_sql = f"""
+SELECT
+  session_id,
+  distinct_id,
+  TIMESTAMP($start_timestamp) AS start_timestamp,
+  TIMESTAMP($end_timestamp) AS end_timestamp,
+  SAFE_CAST($session_duration AS FLOAT64) / 60.0 AS `session_duration_minutes (derived)`,
+  SAFE_CAST($pageview_count AS INT64) AS pageviews,
+  SAFE_CAST($autocapture_count AS INT64) AS autocaptures
+FROM {fqtn("session_analytics")}
+WHERE TIMESTAMP($start_timestamp) >= @start_ts AND TIMESTAMP($start_timestamp) < @end_ts
+ORDER BY `session_duration_minutes (derived)` DESC
+LIMIT 200
+"""
+top_sessions = bq_query_df(top_sessions_sql, {"start_ts": start_ts, "end_ts": end_ts})
+st.dataframe(top_sessions, use_container_width=True, height=340)
+
+st.divider()
+
+
+# -----------------------------
+# E) System Health (High level telemetry)
+# -----------------------------
+st.subheader("System Health (High Level)")
+
+sys_cols = st.columns([1.3, 1.3, 1.4])
+
+# Response time trend (p95)
+with sys_cols[0]:
+    latency_sql = f"""
+    SELECT
+      DATE(created_at) AS day,
+      APPROX_QUANTILES(SAFE_CAST(duration AS FLOAT64), 100)[OFFSET(95)] AS p95_duration__derived,
+      AVG(SAFE_CAST(duration AS FLOAT64)) AS avg_duration__derived
+    FROM {fqtn("backend_telemetry")}
+    WHERE created_at >= @start_ts AND created_at < @end_ts
+      AND duration IS NOT NULL
+    GROUP BY day
+    ORDER BY day
+    """
+    latency = bq_query_df(latency_sql, {"start_ts": start_ts, "end_ts": end_ts})
+    if not latency.empty:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=latency["day"], y=latency["p95_duration__derived"],
+                                 mode="lines+markers", name="P95 Duration (derived)"))
+        fig.add_trace(go.Scatter(x=latency["day"], y=latency["avg_duration__derived"],
+                                 mode="lines+markers", name="Avg Duration (derived)"))
+        fig.update_layout(title="Backend Latency (Duration) Over Time", xaxis_title="Day", yaxis_title="Duration")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No telemetry duration data found.")
+
+# Error rate trend
+with sys_cols[1]:
+    err_sql = f"""
+    SELECT
+      DATE(created_at) AS day,
+      SAFE_DIVIDE(SUM(CASE WHEN SAFE_CAST(http_response_status_code AS INT64) >= 500 THEN 1 ELSE 0 END), COUNT(*))
+        AS error_rate__derived,
+      COUNT(*) AS total_logs
+    FROM {fqtn("backend_telemetry")}
+    WHERE created_at >= @start_ts AND created_at < @end_ts
+    GROUP BY day
+    ORDER BY day
+    """
+    err = bq_query_df(err_sql, {"start_ts": start_ts, "end_ts": end_ts})
+    if not err.empty:
+        fig = px.line(err, x="day", y="error_rate__derived", markers=True, title="Error Rate Over Time (derived)")
+        fig.update_yaxes(tickformat=".0%")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No telemetry error-rate data found.")
+
+# Top endpoints by volume / errors
+with sys_cols[2]:
+    endpoint_sql = f"""
+    SELECT
+      COALESCE(http_route, url_path, span_name, 'unknown') AS endpoint,
+      COUNT(*) AS requests,
+      SUM(CASE WHEN SAFE_CAST(http_response_status_code AS INT64) >= 500 THEN 1 ELSE 0 END) AS errors,
+      SAFE_DIVIDE(SUM(CASE WHEN SAFE_CAST(http_response_status_code AS INT64) >= 500 THEN 1 ELSE 0 END), COUNT(*))
+        AS endpoint_error_rate__derived
+    FROM {fqtn("backend_telemetry")}
+    WHERE created_at >= @start_ts AND created_at < @end_ts
+    GROUP BY endpoint
+    ORDER BY requests DESC
+    LIMIT 20
+    """
+    endpoints = bq_query_df(endpoint_sql, {"start_ts": start_ts, "end_ts": end_ts})
+    if not endpoints.empty:
+        fig = px.bar(endpoints, x="requests", y="endpoint", orientation="h",
+                     title="Top Endpoints by Request Volume")
+        st.plotly_chart(fig, use_container_width=True)
+
+st.markdown("#### Recent Errors / Exceptions")
+recent_err_sql = f"""
+SELECT
+  created_at,
+  COALESCE(http_route, url_path, span_name, 'unknown') AS endpoint,
+  SAFE_CAST(http_response_status_code AS INT64) AS status_code,
+  level,
+  message,
+  exception_type,
+  exception_message,
+  request_id
+FROM {fqtn("backend_telemetry")}
+WHERE created_at >= @start_ts AND created_at < @end_ts
+  AND (SAFE_CAST(http_response_status_code AS INT64) >= 500 OR is_exception = TRUE)
+ORDER BY created_at DESC
+LIMIT 200
+"""
+recent_errors = bq_query_df(recent_err_sql, {"start_ts": start_ts, "end_ts": end_ts})
+st.dataframe(recent_errors, use_container_width=True, height=340)
+
+
+# -----------------------------
+# Footer / Notes
+# -----------------------------
+st.caption(
+    "Note: Derived metrics are labeled “(derived)” in visuals. "
+    "Because the dashboard is read-only, any missing derived fields should be implemented upstream "
+    "as BigQuery views/materialized views or curated tables."
+)
