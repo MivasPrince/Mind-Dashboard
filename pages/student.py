@@ -65,7 +65,7 @@ def render():
         attempts_query = f"""
         SELECT COUNT(*) as total_attempts
         FROM {get_table_ref('conversation')}
-        WHERE user_id = '{student_id}'
+        WHERE user = '{student_id}'
         """
         attempts_df = run_query(attempts_query, client)
         total_attempts = attempts_df['total_attempts'].iloc[0] if attempts_df is not None and not attempts_df.empty else 0
@@ -74,16 +74,16 @@ def render():
         avg_score_query = f"""
         SELECT AVG(final_score) as avg_score
         FROM {get_table_ref('grades')}
-        WHERE user_id = '{student_id}'
+        WHERE user = '{student_id}'
         """
         avg_score_df = run_query(avg_score_query, client)
         avg_score = avg_score_df['avg_score'].iloc[0] if avg_score_df is not None and not avg_score_df.empty else 0
         
         # Completed cases
         completed_query = f"""
-        SELECT COUNT(DISTINCT case_study_id) as completed_cases
+        SELECT COUNT(DISTINCT case_study) as completed_cases
         FROM {get_table_ref('grades')}
-        WHERE user_id = '{student_id}'
+        WHERE user = '{student_id}'
         """
         completed_df = run_query(completed_query, client)
         completed_cases = completed_df['completed_cases'].iloc[0] if completed_df is not None and not completed_df.empty else 0
@@ -92,7 +92,7 @@ def render():
         recent_query = f"""
         SELECT MAX(timestamp) as last_activity
         FROM {get_table_ref('conversation')}
-        WHERE user_id = '{student_id}'
+        WHERE user = '{student_id}'
         """
         recent_df = run_query(recent_query, client)
         last_activity = recent_df['last_activity'].iloc[0] if recent_df is not None and not recent_df.empty else None
@@ -133,15 +133,15 @@ def render():
     case_performance_query = f"""
     SELECT 
         c.title as case_title,
-        COUNT(g.grade_id) as attempts,
+        COUNT(g._id) as attempts,
         AVG(g.final_score) as avg_score,
         MAX(g.final_score) as best_score,
-        AVG(g.communication) as avg_communication,
-        AVG(g.comprehension) as avg_comprehension,
-        AVG(g.critical_thinking) as avg_critical_thinking
+        AVG(g.individual_scores.communication) as avg_communication,
+        AVG(g.individual_scores.comprehension) as avg_comprehension,
+        AVG(g.individual_scores.critical_thinking) as avg_critical_thinking
     FROM {get_table_ref('grades')} g
-    LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study_id = c.case_study_id
-    WHERE g.user_id = '{student_id}'
+    LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study = c.case_study_id
+    WHERE g.user = '{student_id}'
     GROUP BY c.title
     ORDER BY avg_score DESC
     """
@@ -180,12 +180,12 @@ def render():
     rubric_timeline_query = f"""
     SELECT 
         DATE(g.timestamp) as date,
-        AVG(g.communication) as communication,
-        AVG(g.comprehension) as comprehension,
-        AVG(g.critical_thinking) as critical_thinking,
+        AVG(g.individual_scores.communication) as communication,
+        AVG(g.individual_scores.comprehension) as comprehension,
+        AVG(g.individual_scores.critical_thinking) as critical_thinking,
         AVG(g.final_score) as overall
     FROM {get_table_ref('grades')} g
-    WHERE g.user_id = '{student_id}'
+    WHERE g.user = '{student_id}'
     GROUP BY DATE(g.timestamp)
     ORDER BY date
     """
@@ -218,16 +218,15 @@ def render():
     recent_attempts_query = f"""
     SELECT 
         c.title as case_title,
-        g.attempt,
-        g.communication,
-        g.comprehension,
-        g.critical_thinking,
+        g.individual_scores.communication as communication,
+        g.individual_scores.comprehension as comprehension,
+        g.individual_scores.critical_thinking as critical_thinking,
         g.final_score,
-        g.performance_summary,
+        g.overall_summary as performance_summary,
         g.timestamp
     FROM {get_table_ref('grades')} g
-    LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study_id = c.case_study_id
-    WHERE g.user_id = '{student_id}'
+    LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study = c.case_study_id
+    WHERE g.user = '{student_id}'
     ORDER BY g.timestamp DESC
     LIMIT 20
     """
