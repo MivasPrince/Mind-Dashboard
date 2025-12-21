@@ -99,13 +99,13 @@ def render():
         st.markdown("**Recent Sessions**")
         recent_sessions_query = f"""
         SELECT 
-            s.session_pk,
+            s._id as user_id,
             u.name as user_name,
             c.title as case_title,
             s.start_time,
             s.is_active
         FROM {get_table_ref('sessions')} s
-        LEFT JOIN {get_table_ref('user')} u ON s.user_id = u.user_id
+        LEFT JOIN {get_table_ref('user')} u ON s._id = u.user_id
         LEFT JOIN {get_table_ref('casestudy')} c ON s.case_study_id = c.case_study_id
         ORDER BY s.start_time DESC
         LIMIT 10
