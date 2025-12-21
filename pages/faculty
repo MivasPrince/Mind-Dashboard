@@ -83,7 +83,7 @@ def render():
         cohort_score_query = f"""
         SELECT AVG(g.final_score) as avg_score
         FROM {get_table_ref('grades')} g
-        LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
+        LEFT JOIN {get_table_ref('user')} u ON g.user = u.user_id
         WHERE 1=1 {where_clause}
         """
         cohort_score_df = run_query(cohort_score_query, client)
@@ -93,7 +93,7 @@ def render():
         attempts_query = f"""
         SELECT COUNT(*) as total_attempts
         FROM {get_table_ref('conversation')} c
-        LEFT JOIN {get_table_ref('user')} u ON c.user_id = u.user_id
+        LEFT JOIN {get_table_ref('user')} u ON c.user = u.user_id
         WHERE 1=1 {where_clause}
         """
         attempts_df = run_query(attempts_query, client)
@@ -101,9 +101,9 @@ def render():
         
         # Active students (with activity in last 7 days)
         active_query = f"""
-        SELECT COUNT(DISTINCT c.user_id) as active_students
+        SELECT COUNT(DISTINCT c.user) as active_students
         FROM {get_table_ref('conversation')} c
-        LEFT JOIN {get_table_ref('user')} u ON c.user_id = u.user_id
+        LEFT JOIN {get_table_ref('user')} u ON c.user = u.user_id
         WHERE c.timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
         {where_clause}
         """
@@ -150,9 +150,9 @@ def render():
         SELECT 
             u.name,
             AVG(g.final_score) as avg_score,
-            COUNT(g.grade_id) as num_attempts
+            COUNT(g._id) as num_attempts
         FROM {get_table_ref('grades')} g
-        LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
+        LEFT JOIN {get_table_ref('user')} u ON g.user = u.user_id
         WHERE 1=1 {where_clause}
         GROUP BY u.name
         ORDER BY avg_score DESC
@@ -184,7 +184,7 @@ def render():
             END as score_range,
             COUNT(*) as count
         FROM {get_table_ref('grades')} g
-        LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
+        LEFT JOIN {get_table_ref('user')} u ON g.user = u.user_id
         WHERE 1=1 {where_clause}
         GROUP BY score_range
         """
@@ -208,12 +208,12 @@ def render():
     rubric_heatmap_query = f"""
     SELECT 
         c.title as case_study,
-        AVG(g.communication) as communication,
-        AVG(g.comprehension) as comprehension,
-        AVG(g.critical_thinking) as critical_thinking
+        AVG(g.individual_scores.communication) as communication,
+        AVG(g.individual_scores.comprehension) as comprehension,
+        AVG(g.individual_scores.critical_thinking) as critical_thinking
     FROM {get_table_ref('grades')} g
-    LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
-    LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study_id = c.case_study_id
+    LEFT JOIN {get_table_ref('user')} u ON g.user = u.user_id
+    LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study = c.case_study_id
     WHERE 1=1 {where_clause}
     GROUP BY c.title
     ORDER BY c.title
@@ -251,12 +251,12 @@ def render():
             u.user_id,
             u.name,
             u.email,
-            COUNT(DISTINCT g.grade_id) as num_attempts,
+            COUNT(DISTINCT g._id) as num_attempts,
             AVG(g.final_score) as avg_score,
             MAX(c.timestamp) as last_activity
         FROM {get_table_ref('user')} u
-        LEFT JOIN {get_table_ref('grades')} g ON u.user_id = g.user_id
-        LEFT JOIN {get_table_ref('conversation')} c ON u.user_id = c.user_id
+        LEFT JOIN {get_table_ref('grades')} g ON u.user_id = g.user
+        LEFT JOIN {get_table_ref('conversation')} c ON u.user_id = c.user
         WHERE 1=1 {where_clause}
         GROUP BY u.user_id, u.name, u.email
     )
@@ -294,14 +294,14 @@ def render():
     case_analytics_query = f"""
     SELECT 
         c.title,
-        COUNT(DISTINCT g.user_id) as unique_students,
-        COUNT(g.grade_id) as total_attempts,
+        COUNT(DISTINCT g.user) as unique_students,
+        COUNT(g._id) as total_attempts,
         AVG(g.final_score) as avg_score,
         MIN(g.final_score) as min_score,
         MAX(g.final_score) as max_score
     FROM {get_table_ref('casestudy')} c
-    LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study_id
-    LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
+    LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study
+    LEFT JOIN {get_table_ref('user')} u ON g.user = u.user_id
     WHERE 1=1 {where_clause}
     GROUP BY c.title
     ORDER BY avg_score DESC
