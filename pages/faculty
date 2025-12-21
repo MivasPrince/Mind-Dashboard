@@ -250,7 +250,7 @@ def render():
         SELECT 
             u.user_id,
             u.name,
-            u.student_email,
+            u.email,
             COUNT(DISTINCT g.grade_id) as num_attempts,
             AVG(g.final_score) as avg_score,
             MAX(c.timestamp) as last_activity
@@ -258,11 +258,11 @@ def render():
         LEFT JOIN {get_table_ref('grades')} g ON u.user_id = g.user_id
         LEFT JOIN {get_table_ref('conversation')} c ON u.user_id = c.user_id
         WHERE 1=1 {where_clause}
-        GROUP BY u.user_id, u.name, u.student_email
+        GROUP BY u.user_id, u.name, u.email
     )
     SELECT 
         name,
-        student_email,
+        email,
         num_attempts,
         ROUND(avg_score, 1) as avg_score,
         last_activity,
