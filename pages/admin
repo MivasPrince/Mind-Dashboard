@@ -137,7 +137,7 @@ def render():
     active_users_query = f"""
     SELECT 
         DATE(timestamp) as date,
-        COUNT(DISTINCT user_id) as daily_active_users
+        COUNT(DISTINCT user) as daily_active_users
     FROM {get_table_ref('conversation')}
     WHERE timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
     GROUP BY DATE(timestamp)
@@ -165,11 +165,11 @@ def render():
         c.title,
         COUNT(DISTINCT s._id) as unique_users,
         COUNT(s._id) as total_sessions,
-        COUNT(g.grade_id) as graded_attempts,
+        COUNT(g._id) as graded_attempts,
         AVG(g.final_score) as avg_score
     FROM {get_table_ref('casestudy')} c
     LEFT JOIN {get_table_ref('sessions')} s ON c.case_study_id = s.case_study_id
-    LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study_id
+    LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study
     GROUP BY c.title
     ORDER BY unique_users DESC
     """
@@ -213,9 +213,9 @@ def render():
     WITH funnel AS (
         SELECT 
             (SELECT COUNT(DISTINCT user_id) FROM {get_table_ref('user')}) as registered_users,
-            (SELECT COUNT(DISTINCT user_id) FROM {get_table_ref('sessions')}) as users_with_sessions,
-            (SELECT COUNT(DISTINCT user_id) FROM {get_table_ref('conversation')}) as users_with_conversations,
-            (SELECT COUNT(DISTINCT user_id) FROM {get_table_ref('grades')}) as users_with_grades
+            (SELECT COUNT(DISTINCT _id) FROM {get_table_ref('sessions')}) as users_with_sessions,
+            (SELECT COUNT(DISTINCT user) FROM {get_table_ref('conversation')}) as users_with_conversations,
+            (SELECT COUNT(DISTINCT user) FROM {get_table_ref('grades')}) as users_with_grades
     )
     SELECT * FROM funnel
     """
@@ -269,10 +269,10 @@ def render():
     SELECT 
         COALESCE(u.department, 'No Department') as department,
         COUNT(DISTINCT u.user_id) as students,
-        COUNT(g.grade_id) as attempts,
+        COUNT(g._id) as attempts,
         AVG(g.final_score) as avg_score
     FROM {get_table_ref('user')} u
-    LEFT JOIN {get_table_ref('grades')} g ON u.user_id = g.user_id
+    LEFT JOIN {get_table_ref('grades')} g ON u.user_id = g.user
     GROUP BY department
     HAVING students > 0
     ORDER BY avg_score DESC
