@@ -1,6 +1,6 @@
 """
-Faculty Dashboard - Academic & Pedagogical View
-Learning outcomes, cohort performance, at-risk students, assessment analytics
+Faculty Dashboard - VISUAL-RICH Academic Analytics
+Charts: box plots, heatmaps, radar, trends, distributions
 """
 
 import sys
@@ -9,262 +9,205 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from core.db import get_bigquery_client, run_query
-from core.settings import get_table_ref
-from components.ui import (
-    render_kpi_row, render_line_chart, render_bar_chart, render_box_plot,
-    render_radar_chart, render_data_table, render_global_filters,
-    render_alert_card, render_data_unavailable
-)
+from core.settings import get_table_ref, COLORS
+from core.theme import get_theme_colors
 
 def render():
-    """Render the enhanced faculty dashboard"""
-    
     st.markdown('<h1 class="main-header">👨‍🏫 Faculty Dashboard</h1>', unsafe_allow_html=True)
-    st.write("**Academic & Pedagogical View** - Learning outcomes and student progress")
+    st.markdown("**Academic Analytics** - Visual insights on learning outcomes")
     
-    # Get BigQuery client
     client = get_bigquery_client()
     if client is None:
-        st.error("Failed to connect to BigQuery")
+        st.error("❌ Failed to connect")
         st.stop()
     
-    # Global Filters
-    with st.expander("🔍 Filters", expanded=False):
-        filters = render_global_filters(show_date=True, show_cohort=True, show_case_study=True)
+    theme = get_theme_colors()
     
-    # Build WHERE clause from filters
-    where_conditions = []
-    if filters.get('date_range') == "Last 30 Days":
-        where_conditions.append("timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)")
-    elif filters.get('date_range') == "Last 90 Days":
-        where_conditions.append("timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)")
+    # KPI GAUGES
+    st.markdown("### 📊 Teaching Metrics")
     
-    where_clause = " AND " + " AND ".join(where_conditions) if where_conditions else ""
+    students_q = f"SELECT COUNT(DISTINCT user_id) as val FROM {get_table_ref('user')} WHERE role = 'student'"
+    students_df = run_query(students_q, client)
+    total_students = students_df['val'].iloc[0] if students_df is not None else 0
     
-    st.divider()
-    
-    # ========================================================================
-    # A. FACULTY KPI CARDS
-    # ========================================================================
-    
-    st.subheader("📊 Teaching Overview")
-    
-    with st.spinner("Loading metrics..."):
-        # Students Taught
-        students_query = f"SELECT COUNT(DISTINCT user_id) as total FROM {get_table_ref('user')} WHERE role = 'student'"
-        students_df = run_query(students_query, client)
-        total_students = students_df['total'].iloc[0] if students_df is not None and not students_df.empty else 0
-        
-        # Active Case Studies
-        cases_query = f"SELECT COUNT(*) as total FROM {get_table_ref('casestudy')}"
-        cases_df = run_query(cases_query, client)
-        active_cases = cases_df['total'].iloc[0] if cases_df is not None and not cases_df.empty else 0
-        
-        # Average Score
-        avg_query = f"SELECT AVG(final_score) as avg_score FROM {get_table_ref('grades')} WHERE 1=1 {where_clause}"
-        avg_df = run_query(avg_query, client)
-        avg_score = avg_df['avg_score'].iloc[0] if avg_df is not None and not avg_df.empty else 0
-        
-        # Students at Risk
-        risk_query = f"""
-        SELECT COUNT(DISTINCT g.user) as at_risk
-        FROM {get_table_ref('grades')} g
-        WHERE final_score < 70
-        """
-        risk_df = run_query(risk_query, client)
-        at_risk = risk_df['at_risk'].iloc[0] if risk_df is not None and not risk_df.empty else 0
-    
-    render_kpi_row([
-        {'title': 'Total Students', 'value': f"{total_students:,}", 'icon': '👥'},
-        {'title': 'Active Cases', 'value': f"{active_cases}", 'icon': '📚'},
-        {'title': 'Avg Score', 'value': f"{avg_score:.1f}", 'icon': '📈'},
-        {'title': 'Students at Risk', 'value': f"{at_risk}", 'icon': '⚠️'}
-    ])
-    
-    st.divider()
-    
-    # ========================================================================
-    # B. COHORT PERFORMANCE
-    # ========================================================================
-    
-    st.subheader("🎓 Cohort Performance")
+    avg_q = f"SELECT AVG(final_score) as val FROM {get_table_ref('grades')}"
+    avg_df = run_query(avg_q, client)
+    avg_score = avg_df['val'].iloc[0] if avg_df is not None else 0
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # Average Score by Cohort
-        cohort_query = f"""
-        SELECT 
-            COALESCE(u.department, 'No Department') as cohort,
-            AVG(g.final_score) as avg_score,
-            COUNT(DISTINCT g.user) as student_count
-        FROM {get_table_ref('grades')} g
-        JOIN {get_table_ref('user')} u ON g.user = u.user_id
-        WHERE 1=1 {where_clause}
-        GROUP BY cohort
-        ORDER BY avg_score DESC
-        """
-        cohort_data = run_query(cohort_query, client)
-        
-        if cohort_data is not None and not cohort_data.empty:
-            render_bar_chart(cohort_data, 'cohort', 'avg_score', 'Average Score by Department')
-        else:
-            render_data_unavailable()
+        fig = go.Figure(go.Indicator(
+            mode="number+gauge",
+            value=total_students,
+            title={'text': "👥 Students"},
+            gauge={'axis': {'range': [0, total_students * 1.5]}, 'bar': {'color': COLORS['primary']}}
+        ))
+        fig.update_layout(height=200)
+        st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        # Score Distribution Box Plot
-        dist_query = f"""
-        SELECT 
-            u.department as cohort,
-            g.final_score
-        FROM {get_table_ref('grades')} g
-        JOIN {get_table_ref('user')} u ON g.user = u.user_id
-        WHERE 1=1 {where_clause}
-        AND u.department IS NOT NULL
-        """
-        dist_data = run_query(dist_query, client)
-        
-        if dist_data is not None and not dist_data.empty:
-            render_box_plot(dist_data, 'cohort', 'final_score', 'Score Distribution by Department')
-        else:
-            render_data_unavailable()
+        fig = go.Figure(go.Indicator(
+            mode="number+gauge",
+            value=avg_score,
+            title={'text': "📈 Class Avg"},
+            gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['success']}}
+        ))
+        fig.update_layout(height=200)
+        st.plotly_chart(fig, use_container_width=True)
     
     st.divider()
     
-    # ========================================================================
-    # C. CASE STUDY EFFECTIVENESS
-    # ========================================================================
+    # COHORT PERFORMANCE - BOX PLOT
+    st.markdown("### 🎓 Cohort Performance Distribution")
     
-    st.subheader("📚 Case Study Analytics")
-    
-    case_analytics_query = f"""
-    SELECT 
-        c.title,
-        COUNT(DISTINCT g.user) as unique_students,
-        COUNT(g._id) as total_attempts,
-        AVG(g.final_score) as avg_score
-    FROM {get_table_ref('casestudy')} c
-    LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study
-    WHERE 1=1 {where_clause}
-    GROUP BY c.title
-    ORDER BY avg_score DESC
+    dist_q = f"""
+    SELECT u.department as cohort, g.final_score
+    FROM {get_table_ref('grades')} g
+    JOIN {get_table_ref('user')} u ON g.user = u.user_id
+    WHERE u.department IS NOT NULL
     """
-    case_analytics = run_query(case_analytics_query, client)
+    dist_data = run_query(dist_q, client)
     
-    if case_analytics is not None and not case_analytics.empty:
-        render_bar_chart(case_analytics, 'title', 'avg_score',
-                        'Average Score by Case Study', orientation='h')
-        
-        render_data_table(case_analytics, "Case Study Performance",
-                         max_rows=20, key_suffix="cases")
-    else:
-        render_data_unavailable()
+    if dist_data is not None and not dist_data.empty:
+        fig = px.box(dist_data, x='cohort', y='final_score', color='cohort')
+        fig.update_layout(
+            title="Score Distribution by Department",
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig, use_container_width=True)
     
     st.divider()
     
-    # ========================================================================
-    # D. ASSESSMENT BREAKDOWN (RADAR CHART)
-    # ========================================================================
+    # RUBRIC RADAR
+    st.markdown("### 🎯 Class Rubric Analysis")
     
-    st.subheader("🎯 Rubric Performance Analysis")
-    
-    rubric_query = f"""
+    rubric_q = f"""
     SELECT 
-        AVG(individual_scores.communication) as communication,
-        AVG(individual_scores.comprehension) as comprehension,
-        AVG(individual_scores.critical_thinking) as critical_thinking
+        AVG(individual_scores.communication) as comm,
+        AVG(individual_scores.comprehension) as comp,
+        AVG(individual_scores.critical_thinking) as crit
     FROM {get_table_ref('grades')}
-    WHERE 1=1 {where_clause}
     """
-    rubric_data = run_query(rubric_query, client)
+    rubric_data = run_query(rubric_q, client)
     
     if rubric_data is not None and not rubric_data.empty:
-        comm = float(rubric_data['communication'].iloc[0] or 0)
-        comp = float(rubric_data['comprehension'].iloc[0] or 0)
-        crit = float(rubric_data['critical_thinking'].iloc[0] or 0)
+        comm = float(rubric_data['comm'].iloc[0] or 0)
+        comp = float(rubric_data['comp'].iloc[0] or 0)
+        crit = float(rubric_data['crit'].iloc[0] or 0)
         
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            render_radar_chart(
-                ['Communication', 'Comprehension', 'Critical Thinking'],
-                [comm, comp, crit],
-                'Average Rubric Scores Across All Students'
+            fig = go.Figure()
+            fig.add_trace(go.Scatterpolar(
+                r=[comm, comp, crit, comm],
+                theta=['Communication', 'Comprehension', 'Critical Thinking', 'Communication'],
+                fill='toself',
+                line_color=COLORS['primary'],
+                fillcolor=COLORS['primary'],
+                opacity=0.5
+            ))
+            fig.update_layout(
+                polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                height=400,
+                title="Class Average Rubric Scores"
             )
+            st.plotly_chart(fig, use_container_width=True)
         
         with col2:
             st.metric("Communication", f"{comm:.1f}")
             st.metric("Comprehension", f"{comp:.1f}")
             st.metric("Critical Thinking", f"{crit:.1f}")
-    else:
-        render_data_unavailable()
     
     st.divider()
     
-    # ========================================================================
-    # E. AT-RISK STUDENTS
-    # ========================================================================
+    # CASE STUDY EFFECTIVENESS
+    st.markdown("### 📚 Case Study Performance")
     
-    st.subheader("⚠️ Students Requiring Attention")
-    
-    render_alert_card(
-        "Early Warning System",
-        "Students shown below have low scores (<70) or have been inactive for >14 days",
-        severity="warning"
-    )
-    
-    at_risk_query = f"""
+    case_q = f"""
     SELECT 
-        u.name,
-        u.email,
-        u.department,
+        c.title,
         AVG(g.final_score) as avg_score,
-        COUNT(g._id) as attempts,
-        MAX(c.timestamp) as last_active,
-        TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), MAX(c.timestamp), DAY) as days_inactive
-    FROM {get_table_ref('user')} u
-    LEFT JOIN {get_table_ref('grades')} g ON u.user_id = g.user
-    LEFT JOIN {get_table_ref('conversation')} c ON u.user_id = c.user
-    WHERE u.role = 'student'
-    GROUP BY u.name, u.email, u.department
-    HAVING avg_score < 70 OR days_inactive > 14
-    ORDER BY avg_score ASC, days_inactive DESC
-    LIMIT 50
+        COUNT(DISTINCT g.user) as students
+    FROM {get_table_ref('casestudy')} c
+    LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study
+    GROUP BY c.title
+    ORDER BY avg_score DESC
     """
-    at_risk_data = run_query(at_risk_query, client)
+    case_data = run_query(case_q, client)
     
-    if at_risk_data is not None and not at_risk_data.empty:
-        render_data_table(at_risk_data, "At-Risk Students",
-                         max_rows=50, key_suffix="risk")
-    else:
-        st.success("✅ No students currently at risk!")
+    if case_data is not None and not case_data.empty:
+        fig = px.bar(case_data, x='avg_score', y='title', orientation='h',
+                    color='avg_score', color_continuous_scale='RdYlGn')
+        fig.update_layout(
+            title="Average Score by Case Study",
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig, use_container_width=True)
     
     st.divider()
     
-    # ========================================================================
-    # F. PERFORMANCE TREND
-    # ========================================================================
+    # PERFORMANCE TREND
+    st.markdown("### 📈 Class Performance Trend")
     
-    st.subheader("📈 Performance Trend Over Time")
-    
-    trend_query = f"""
+    trend_q = f"""
     SELECT 
         DATE(timestamp) as date,
-        AVG(final_score) as avg_score,
-        COUNT(DISTINCT user) as student_count
+        AVG(final_score) as avg_score
     FROM {get_table_ref('grades')}
     WHERE timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
-    GROUP BY DATE(timestamp)
+    GROUP BY date
     ORDER BY date
     """
-    trend_data = run_query(trend_query, client)
+    trend_data = run_query(trend_q, client)
     
     if trend_data is not None and not trend_data.empty:
-        render_line_chart(trend_data, 'date', 'avg_score',
-                        'Class Average Performance (Last 90 Days)')
+        fig = px.line(trend_data, x='date', y='avg_score', markers=True)
+        fig.update_traces(line_color=COLORS['primary'], line_width=3)
+        fig.update_layout(
+            title="Class Average Over Time (90 Days)",
+            height=350
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    st.divider()
+    
+    # AT-RISK HEATMAP
+    st.markdown("### ⚠️ At-Risk Student Monitoring")
+    
+    risk_q = f"""
+    SELECT 
+        u.name,
+        AVG(g.final_score) as avg_score,
+        COUNT(g._id) as attempts
+    FROM {get_table_ref('user')} u
+    LEFT JOIN {get_table_ref('grades')} g ON u.user_id = g.user
+    WHERE u.role = 'student'
+    GROUP BY u.name
+    HAVING avg_score < 70 OR attempts < 3
+    ORDER BY avg_score ASC
+    LIMIT 20
+    """
+    risk_data = run_query(risk_q, client)
+    
+    if risk_data is not None and not risk_data.empty:
+        fig = px.scatter(risk_data, x='attempts', y='avg_score', 
+                        text='name', size='avg_score',
+                        color='avg_score', color_continuous_scale='RdYlGn_r')
+        fig.update_traces(textposition='top center')
+        fig.update_layout(
+            title="Students Needing Attention (Score vs Attempts)",
+            height=400
+        )
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        render_data_unavailable()
+        st.success("✅ No at-risk students detected!")
 
 if __name__ == "__main__":
     render()
