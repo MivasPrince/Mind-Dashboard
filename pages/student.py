@@ -32,7 +32,7 @@ def render():
     st.subheader("👤 Select Student")
     
     users_query = f"""
-    SELECT user_id, name, student_email, cohort
+    SELECT user_id, name, email, cohort
     FROM {get_table_ref('user')}
     WHERE role = 'student' OR role IS NULL
     ORDER BY name
@@ -44,7 +44,7 @@ def render():
         st.stop()
     
     # Student selector
-    student_options = {f"{row['name']} ({row['student_email']})": row['user_id'] 
+    student_options = {f"{row['name']} ({row['email']})": row['user_id'] 
                       for _, row in users_df.iterrows()}
     
     selected_student = st.selectbox(
