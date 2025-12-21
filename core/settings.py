@@ -75,28 +75,24 @@ TABLES = {
     }
 }
 
-# Field mappings for each table
+# Field mappings for each table (ACTUAL SCHEMA - Dec 2025)
 FIELD_MAPPINGS = {
     'user': {
         'user_id': {'display': 'User ID', 'required': True},
         'name': {'display': 'Name', 'required': True},
-        'email': {'display': 'Email', 'required': True},  # Changed from student_email
+        'email': {'display': 'Email', 'required': True},
         'role': {'display': 'Role', 'required': False},
         'department': {'display': 'Department', 'required': False},
-        'cohort': {'display': 'Cohort', 'required': False},
-        'posthog_distinct_email': {'display': 'PostHog Email', 'required': False},  # Changed from posthog_distinct_id
+        'posthog_distinct_email': {'display': 'PostHog Email', 'required': False},
         'date_added': {'display': 'Date Added', 'required': False},
         'date_updated': {'display': 'Date Updated', 'required': False}
     },
     'grades': {
-        'grade_id': {'display': 'Grade ID', 'required': True},
+        '_id': {'display': 'Grade ID', 'required': True},
         'conversation_id': {'display': 'Conversation ID', 'required': False},
-        'case_study_id': {'display': 'Case Study ID', 'required': False},
-        'user_id': {'display': 'User ID', 'required': False},
-        'attempt': {'display': 'Attempt', 'required': False},
-        'communication': {'display': 'Communication', 'required': False},
-        'comprehension': {'display': 'Comprehension', 'required': False},
-        'critical_thinking': {'display': 'Critical Thinking', 'required': False},
+        'case_study': {'display': 'Case Study', 'required': False},
+        'user': {'display': 'User', 'required': False},
+        'individual_scores': {'display': 'Individual Scores', 'required': False},
         'final_score': {'display': 'Final Score', 'required': False},
         'performance_summary': {'display': 'Performance Summary', 'required': False},
         'overall_summary': {'display': 'Overall Summary', 'required': False},
@@ -110,7 +106,7 @@ FIELD_MAPPINGS = {
         'avatar_id': {'display': 'Avatar ID', 'required': False}
     },
     'sessions': {
-        '_id': {'display': 'User ID', 'required': True},  # Changed from session_pk and user_id
+        '_id': {'display': 'Session/User ID', 'required': True},
         'case_study_id': {'display': 'Case Study ID', 'required': False},
         'user_email': {'display': 'User Email', 'required': False},
         'start_time': {'display': 'Start Time', 'required': False},
@@ -121,12 +117,11 @@ FIELD_MAPPINGS = {
     },
     'conversation': {
         'conversation_id': {'display': 'Conversation ID', 'required': True},
-        'case_study_id': {'display': 'Case Study ID', 'required': False},
-        'user_id': {'display': 'User ID', 'required': False},
-        'session_attempt': {'display': 'Session Attempt', 'required': False},
+        'case_study': {'display': 'Case Study', 'required': False},
+        'user': {'display': 'User', 'required': False},
         'timestamp': {'display': 'Timestamp', 'required': False},
         'transcript': {'display': 'Transcript', 'required': False},
-        'request_id': {'display': 'Request ID', 'required': False}
+        '_id': {'display': 'ID', 'required': False}
     },
     'session_analytics': {
         'session_id': {'display': 'Session ID', 'required': True},
