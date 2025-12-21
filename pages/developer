@@ -304,7 +304,7 @@ def render():
         'Users without Email' as check_name,
         COUNT(*) as count
     FROM {get_table_ref('user')}
-    WHERE student_email IS NULL
+    WHERE email IS NULL
     """
     null_result = run_query(null_check_query, client)
     if null_result is not None and not null_result.empty:
