@@ -292,7 +292,7 @@ def render():
         COUNT(*) as count
     FROM {get_table_ref('conversation')} c
     LEFT JOIN {get_table_ref('grades')} g ON c.conversation_id = g.conversation_id
-    WHERE g.grade_id IS NULL
+    WHERE g._id IS NULL
     """
     orphan_result = run_query(orphan_check_query, client)
     if orphan_result is not None and not orphan_result.empty:
