@@ -128,8 +128,8 @@ def render():
             g.final_score,
             g.timestamp
         FROM {get_table_ref('grades')} g
-        LEFT JOIN {get_table_ref('user')} u ON g.user_id = u.user_id
-        LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study_id = c.case_study_id
+        LEFT JOIN {get_table_ref('user')} u ON g.user = u.user_id
+        LEFT JOIN {get_table_ref('casestudy')} c ON g.case_study = c.case_study_id
         ORDER BY g.timestamp DESC
         LIMIT 10
         """
