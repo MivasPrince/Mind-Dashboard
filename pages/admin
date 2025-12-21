@@ -3,6 +3,10 @@ Admin Dashboard Page
 Organization-wide insights and administrative metrics
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import streamlit as st
 from core.db import get_bigquery_client, run_query
 from core.settings import get_table_ref
@@ -159,8 +163,8 @@ def render():
     case_usage_query = f"""
     SELECT 
         c.title,
-        COUNT(DISTINCT s.user_id) as unique_users,
-        COUNT(s.session_pk) as total_sessions,
+        COUNT(DISTINCT s._id) as unique_users,
+        COUNT(s._id) as total_sessions,
         COUNT(g.grade_id) as graded_attempts,
         AVG(g.final_score) as avg_score
     FROM {get_table_ref('casestudy')} c
