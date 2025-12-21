@@ -9,7 +9,7 @@ import streamlit as st
 BIGQUERY_CONFIG = {
     'project_id': 'gen-lang-client-0625543859',
     'dataset': 'mind_analytics',
-    'location': 'europe-west3'
+    'location': 'europe-west3'  # Updated from EU to actual location
 }
 
 # Full table reference helper
@@ -80,11 +80,11 @@ FIELD_MAPPINGS = {
     'user': {
         'user_id': {'display': 'User ID', 'required': True},
         'name': {'display': 'Name', 'required': True},
-        'student_email': {'display': 'Email', 'required': True},
+        'email': {'display': 'Email', 'required': True},  # Changed from student_email
         'role': {'display': 'Role', 'required': False},
         'department': {'display': 'Department', 'required': False},
         'cohort': {'display': 'Cohort', 'required': False},
-        'posthog_distinct_id': {'display': 'PostHog ID', 'required': False},
+        'posthog_distinct_email': {'display': 'PostHog Email', 'required': False},  # Changed from posthog_distinct_id
         'date_added': {'display': 'Date Added', 'required': False},
         'date_updated': {'display': 'Date Updated', 'required': False}
     },
@@ -110,14 +110,14 @@ FIELD_MAPPINGS = {
         'avatar_id': {'display': 'Avatar ID', 'required': False}
     },
     'sessions': {
-        'session_pk': {'display': 'Session ID', 'required': True},
+        '_id': {'display': 'User ID', 'required': True},  # Changed from session_pk and user_id
         'case_study_id': {'display': 'Case Study ID', 'required': False},
-        'user_id': {'display': 'User ID', 'required': False},
         'user_email': {'display': 'User Email', 'required': False},
         'start_time': {'display': 'Start Time', 'required': False},
         'end_time': {'display': 'End Time', 'required': False},
         'last_activity': {'display': 'Last Activity', 'required': False},
-        'is_active': {'display': 'Is Active', 'required': False}
+        'is_active': {'display': 'Is Active', 'required': False},
+        'transcript': {'display': 'Transcript', 'required': False}
     },
     'conversation': {
         'conversation_id': {'display': 'Conversation ID', 'required': True},
