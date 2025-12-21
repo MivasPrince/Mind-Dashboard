@@ -3,6 +3,10 @@ Student Dashboard Page
 Personal learning analytics and performance metrics
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import streamlit as st
 from core.db import get_bigquery_client, run_query
 from core.settings import get_table_ref
