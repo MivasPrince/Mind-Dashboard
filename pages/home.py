@@ -3,6 +3,10 @@ Home Dashboard Page
 Overview and welcome screen
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import streamlit as st
 from core.db import get_bigquery_client, run_query, test_connection
 from core.settings import get_table_ref
