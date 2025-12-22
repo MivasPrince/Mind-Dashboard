@@ -1,12 +1,9 @@
 """
 MIND Unified Dashboard - Main Application Entry Point
-Streamlit multi-page app with RBAC, BigQuery backend, and dark mode support
+Fixed to work with new dashboard structure (no render() functions)
 """
-
 import sys
 from pathlib import Path
-
-# Add project root to Python path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
@@ -14,8 +11,9 @@ import streamlit as st
 from core.auth import check_authentication, logout
 from core.rbac import check_page_access, get_accessible_pages
 from core.theme import initialize_theme, apply_theme_css, get_logo_path, render_theme_toggle
+from core.db import get_bigquery_client, run_query
+from core.settings import get_table_ref
 
-# Page configuration
 st.set_page_config(
     page_title="MIND Unified Dashboard",
     page_icon="🎓",
@@ -23,13 +21,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize theme
 initialize_theme()
-
-# Apply theme-specific CSS
 apply_theme_css()
 
-# Initialize session state
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'username' not in st.session_state:
@@ -37,13 +31,10 @@ if 'username' not in st.session_state:
 if 'role' not in st.session_state:
     st.session_state.role = None
 
-# Authentication check
 if not st.session_state.authenticated:
     check_authentication()
 else:
-    # Sidebar navigation
     with st.sidebar:
-        # Display theme-appropriate logo
         logo_path = get_logo_path()
         if logo_path:
             st.image(str(logo_path), width=200)
@@ -53,18 +44,12 @@ else:
         st.write(f"**Role:** {st.session_state.role}")
         
         st.divider()
-        
-        # Theme toggle
         render_theme_toggle()
-        
         st.divider()
         
-        # Get accessible pages for current user
         accessible_pages = get_accessible_pages(st.session_state.role)
-        
         st.subheader("Navigation")
         
-        # Create navigation buttons
         if 'Home' in accessible_pages:
             if st.button("🏠 Home", use_container_width=True):
                 st.session_state.current_page = 'Home'
@@ -96,32 +81,60 @@ else:
             logout()
             st.rerun()
     
-    # Initialize current page
     if 'current_page' not in st.session_state:
         st.session_state.current_page = 'Home'
     
-    # Page routing
     current_page = st.session_state.current_page
     
-    # Check access
     if not check_page_access(st.session_state.role, current_page):
-        st.error(f"⛔ Access Denied: You don't have permission to view the {current_page} page.")
-        st.info("Please navigate to an accessible page from the sidebar.")
+        st.error(f"⛔ Access Denied")
         st.stop()
     
-    # Import and render the appropriate page
+    # EXECUTE PAGES (no render() function - code runs directly)
     if current_page == 'Home':
-        from pages import home
-        home.render()
+        st.markdown('<h1 class="main-header">📊 MIND Analytics</h1>', unsafe_allow_html=True)
+        st.markdown("### Welcome to MIND Learning Analytics Platform")
+        
+        client = get_bigquery_client()
+        if client:
+            st.success("✅ Connection successful")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                q = f"SELECT COUNT(DISTINCT user_id) as c FROM {get_table_ref('user')}"
+                df = run_query(q, client)
+                if df is not None and not df.empty:
+                    st.metric("👥 Users", f"{int(df['c'].iloc[0]):,}")
+            
+            with col2:
+                q = f"SELECT COUNT(*) as c FROM {get_table_ref('casestudy')}"
+                df = run_query(q, client)
+                if df is not None and not df.empty:
+                    st.metric("📚 Cases", f"{int(df['c'].iloc[0]):,}")
+            
+            with col3:
+                q = f"SELECT COUNT(*) as c FROM {get_table_ref('sessions')}"
+                df = run_query(q, client)
+                if df is not None and not df.empty:
+                    st.metric("🎯 Sessions", f"{int(df['c'].iloc[0]):,}")
+            
+            with col4:
+                q = f"SELECT COUNT(*) as c FROM {get_table_ref('grades')}"
+                df = run_query(q, client)
+                if df is not None and not df.empty:
+                    st.metric("✅ Grades", f"{int(df['c'].iloc[0]):,}")
+        else:
+            st.error("❌ Failed to connect")
+    
     elif current_page == 'Student':
-        from pages import student
-        student.render()
+        exec(open('pages/student.py').read())
+    
     elif current_page == 'Faculty':
-        from pages import faculty
-        faculty.render()
+        exec(open('pages/faculty.py').read())
+    
     elif current_page == 'Developer':
-        from pages import developer
-        developer.render()
+        exec(open('pages/developer.py').read())
+    
     elif current_page == 'Admin':
-        from pages import admin
-        admin.render()
+        exec(open('pages/admin.py').read())
