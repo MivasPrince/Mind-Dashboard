@@ -1,42 +1,28 @@
 """
-Developer Dashboard - System Telemetry & Health
-Proper Streamlit multi-page app structure
+Developer Dashboard - System Health
 """
 
 import streamlit as st
-import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
 from core.db import get_bigquery_client, run_query
 from core.settings import get_table_ref, COLORS
-from core.theme import apply_theme_css, render_theme_toggle
 
-# Apply theme
-apply_theme_css()
+st.set_page_config(page_title="Developer Dashboard", page_icon="💻", layout="wide")
 
-# Page config
-st.set_page_config(
-    page_title="Developer Dashboard - MIND",
-    page_icon="💻",
-    layout="wide"
-)
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'username' not in st.session_state:
+    st.session_state.username = None
 
-# Require authentication
-if not st.session_state.get('authenticated', False):
-    st.warning("⚠️ Please log in from the Home page")
+if not st.session_state.authenticated:
+    st.warning("⚠️ Please log in from Home")
     st.stop()
 
-# Sidebar
-with st.sidebar:
-    render_theme_toggle()
-    st.divider()
-    time_range = st.selectbox("Time Range", ["Last Hour", "Last 24 Hours", "Last 7 Days"], index=1)
-
-# Header
 st.markdown("# 💻 Developer Dashboard")
 st.markdown(f"### Welcome, {st.session_state.username}!")
-st.markdown("System health monitoring and telemetry")
+st.markdown("System health monitoring")
 st.markdown("---")
 
 client = get_bigquery_client()
@@ -44,10 +30,9 @@ if not client:
     st.error("❌ Failed to connect")
     st.stop()
 
-time_map = {"Last Hour": "1 HOUR", "Last 24 Hours": "1 DAY", "Last 7 Days": "7 DAY"}
-interval = time_map[time_range]
+time_range = st.selectbox("Time", ["Last Hour", "Last 24 Hours", "Last 7 Days"], index=1)
+interval = {"Last Hour": "1 HOUR", "Last 24 Hours": "1 DAY", "Last 7 Days": "7 DAY"}[time_range]
 
-# SYSTEM HEALTH GAUGES
 st.markdown("### 🏥 System Health")
 
 total_q = f"SELECT COUNT(*) as val FROM {get_table_ref('backend_telemetry')} WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval})"
@@ -63,133 +48,35 @@ error_rate = (errors / total_req * 100) if total_req > 0 else 0
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    fig = go.Figure(go.Indicator(
-        mode="number+gauge", value=total_req,
-        title={'text': "📡 Total Requests"},
-        gauge={'axis': {'range': [0, total_req * 1.5]}, 'bar': {'color': COLORS['primary']}}
-    ))
-    fig.update_layout(height=200)
+    fig = go.Figure(go.Indicator(mode="number", value=total_req, title={'text': "📡 Requests"}))
+    fig.update_layout(height=150)
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    fig = go.Figure(go.Indicator(
-        mode="number+gauge", value=errors,
-        title={'text': "❌ Errors"},
-        gauge={'axis': {'range': [0, max(errors * 2, 10)]}, 'bar': {'color': COLORS['danger']}}
-    ))
-    fig.update_layout(height=200)
+    fig = go.Figure(go.Indicator(mode="number", value=errors, title={'text': "❌ Errors"}))
+    fig.update_layout(height=150)
     st.plotly_chart(fig, use_container_width=True)
 
 with col3:
-    fig = go.Figure(go.Indicator(
-        mode="number+gauge", value=error_rate,
-        title={'text': "⚠️ Error Rate %"},
-        gauge={'axis': {'range': [0, 10]}, 
-               'bar': {'color': COLORS['danger'] if error_rate > 5 else COLORS['success']}}
-    ))
-    fig.update_layout(height=200)
+    fig = go.Figure(go.Indicator(mode="number+gauge", value=error_rate, title={'text': "⚠️ Error Rate %"},
+        gauge={'axis': {'range': [0, 10]}, 'bar': {'color': COLORS['danger'] if error_rate > 5 else COLORS['success']}}))
+    fig.update_layout(height=150)
     st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
-# RESPONSE TIME CHART
-st.markdown("### ⏱️ Response Time Monitoring")
+st.markdown("### ⏱️ Response Time")
 
 resp_q = f"""
-SELECT 
-    TIMESTAMP_TRUNC(created_at, HOUR) as hour,
-    AVG(derived_response_time_ms) as avg_resp
+SELECT TIMESTAMP_TRUNC(created_at, HOUR) as hour, AVG(derived_response_time_ms) as avg_resp
 FROM {get_table_ref('backend_telemetry')}
-WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval})
-AND derived_response_time_ms IS NOT NULL
+WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval}) AND derived_response_time_ms IS NOT NULL
 GROUP BY hour ORDER BY hour
 """
 resp_data = run_query(resp_q, client)
 
 if resp_data is not None and not resp_data.empty:
-    fig = px.line(resp_data, x='hour', y='avg_resp', markers=True, title="Average Response Time Over Time")
-    fig.update_traces(line_color=COLORS['primary'], line_width=3)
-    fig.update_layout(yaxis_title="Response Time (ms)", height=350)
+    fig = px.line(resp_data, x='hour', y='avg_resp', markers=True, title="Avg Response Time")
     st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("No response time data available")
 
-st.divider()
-
-# ERROR DISTRIBUTION
-st.markdown("### ❌ Error Analysis")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    error_endpoint_q = f"""
-    SELECT derived_endpoint_group as endpoint, COUNT(*) as errors
-    FROM {get_table_ref('backend_telemetry')}
-    WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval})
-    AND derived_is_error = TRUE AND derived_endpoint_group IS NOT NULL
-    GROUP BY endpoint ORDER BY errors DESC
-    """
-    error_ep = run_query(error_endpoint_q, client)
-    
-    if error_ep is not None and not error_ep.empty:
-        fig = px.pie(error_ep, values='errors', names='endpoint', title="Errors by Endpoint")
-        fig.update_layout(height=350)
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.success("✅ No errors detected")
-
-with col2:
-    status_q = f"""
-    SELECT http_status_code as status, COUNT(*) as count
-    FROM {get_table_ref('backend_telemetry')}
-    WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval})
-    AND http_status_code IS NOT NULL AND http_status_code >= 400
-    GROUP BY status ORDER BY count DESC
-    """
-    status_data = run_query(status_q, client)
-    
-    if status_data is not None and not status_data.empty:
-        fig = px.bar(status_data, x='status', y='count', title="Error Status Codes",
-                    color='count', color_continuous_scale='Reds')
-        fig.update_layout(height=350, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.success("✅ No HTTP errors detected")
-
-st.divider()
-
-# AI USAGE
-st.markdown("### 🤖 AI Usage & Cost")
-
-tokens_q = f"""
-SELECT 
-    DATE(created_at) as date,
-    SUM(derived_ai_total_tokens) as total_tokens
-FROM {get_table_ref('backend_telemetry')}
-WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {interval})
-AND derived_ai_total_tokens IS NOT NULL
-GROUP BY date ORDER BY date
-"""
-tokens_data = run_query(tokens_q, client)
-
-if tokens_data is not None and not tokens_data.empty:
-    tokens_data['cost'] = tokens_data['total_tokens'] / 1000 * 0.002
-    
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=tokens_data['date'], y=tokens_data['total_tokens'],
-                        name='Tokens', marker_color=COLORS['primary']))
-    fig.add_trace(go.Scatter(x=tokens_data['date'], y=tokens_data['cost'] * 10000,
-                            name='Cost ($×10k)', yaxis='y2',
-                            line=dict(color=COLORS['warning'], width=3)))
-    
-    fig.update_layout(
-        title="AI Token Usage & Estimated Cost",
-        yaxis=dict(title='Tokens'),
-        yaxis2=dict(title='Cost ($)', overlaying='y', side='right'),
-        height=400
-    )
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("No AI usage data available")
-
-st.caption("💡 Monitor system health & optimize performance")
+st.caption("💡 Developer Dashboard")
