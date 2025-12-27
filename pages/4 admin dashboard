@@ -1,66 +1,62 @@
 """
-MIND Analytics Dashboard — Admin Page (COMPLETE VERSION)
-Production-grade visual analytics with Seaborn + Plotly
-NO st.set_page_config (called by app.py) - NO render() wrapper
+Admin Dashboard - Institution-Wide Analytics
+Proper Streamlit multi-page app structure - COMPLETE WITH ALL VISUALIZATIONS
 """
-
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
 import seaborn as sns
 import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
 
 from core.db import get_bigquery_client, run_query
 from core.settings import get_table_ref, COLORS
-from core.theme import get_theme_colors
+from core.theme import apply_theme_css, render_theme_toggle
 
-# Seaborn styling
+# Apply theme
+apply_theme_css()
+
+# Page config
+st.set_page_config(
+    page_title="Admin Dashboard - MIND",
+    page_icon="⚙️",
+    layout="wide"
+)
+
+# Require authentication
+if not st.session_state.get('authenticated', False):
+    st.warning("⚠️ Please log in from the Home page")
+    st.stop()
+
+# Sidebar
+with st.sidebar:
+    render_theme_toggle()
+    st.divider()
+    st.header("🔍 Filters")
+    today = datetime.utcnow().date()
+    default_start = today - timedelta(days=30)
+    date_range = st.date_input("Date Range", value=(default_start, today), max_value=today)
+
+# Header
+st.markdown("# ⚙️ Admin Dashboard")
+st.markdown(f"### Welcome, {st.session_state.username}!")
+st.markdown("Institution-level analytics and KPIs")
+st.markdown("---")
+
+client = get_bigquery_client()
+if not client:
+    st.error("❌ Failed to connect")
+    st.stop()
+
 sns.set_style("whitegrid")
-MIVA_PALETTE = [COLORS['primary'], COLORS['secondary'], COLORS['success'], 
-                COLORS['warning'], COLORS['info'], COLORS['danger']]
-sns.set_palette(MIVA_PALETTE)
 
-def create_seaborn_fig(figsize=(10, 6)):
-    """Create consistent figure"""
+def create_fig(figsize=(10, 6)):
     fig, ax = plt.subplots(figsize=figsize, facecolor='white')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     return fig, ax
-
-# DASHBOARD CODE STARTS HERE (no render() wrapper needed)
-
-st.markdown('<h1 class="main-header">🏛️ Admin Dashboard</h1>', unsafe_allow_html=True)
-st.caption("Institution-level analytics: adoption, learning outcomes, engagement (BigQuery read-only)")
-
-client = get_bigquery_client()
-if client is None:
-    st.error("❌ Failed to connect")
-    st.stop()
-
-# SIDEBAR FILTERS
-with st.sidebar:
-    st.header("🔍 Filters")
-    today = datetime.utcnow().date()
-    default_start = today - timedelta(days=30)
-    
-    date_range = st.date_input("Date Range", value=(default_start, today), max_value=today, key="admin_date")
-    if len(date_range) == 2:
-        start_date, end_date = date_range
-    else:
-        start_date = end_date = date_range[0]
-    
-    st.divider()
-    st.caption("💡 Derived fields labeled (derived)")
-
-start_ts = datetime.combine(start_date, datetime.min.time())
-end_ts = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
 
 # EXECUTIVE KPIs
 st.markdown("### 📊 Executive Summary")
@@ -89,43 +85,39 @@ col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     fig = go.Figure(go.Indicator(
-        mode="number+gauge",
-        value=total_users,
+        mode="number+gauge", value=total_users,
         title={'text': "👥 Total Users"},
         gauge={'axis': {'range': [0, total_users * 1.5]}, 'bar': {'color': COLORS['primary']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True, key="admin_gauge1")
+    st.plotly_chart(fig, use_container_width=True)
 
 with col2:
     fig = go.Figure(go.Indicator(
-        mode="number+gauge",
-        value=total_sessions,
+        mode="number+gauge", value=total_sessions,
         title={'text': "🎯 Sessions"},
         gauge={'axis': {'range': [0, total_sessions * 1.5]}, 'bar': {'color': COLORS['secondary']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True, key="admin_gauge2")
+    st.plotly_chart(fig, use_container_width=True)
 
 with col3:
     fig = go.Figure(go.Indicator(
-        mode="number+gauge",
-        value=avg_score,
+        mode="number+gauge", value=avg_score,
         title={'text': "📈 Avg Score"},
         gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['success']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True, key="admin_gauge3")
+    st.plotly_chart(fig, use_container_width=True)
 
 with col4:
     fig = go.Figure(go.Indicator(
-        mode="number+gauge",
-        value=uptime,
+        mode="number+gauge", value=uptime,
         title={'text': "✅ Uptime %"},
         gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['success']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True, key="admin_gauge4")
+    st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
@@ -144,14 +136,14 @@ with col1:
     dau = run_query(dau_q, client)
     
     if dau is not None and not dau.empty:
-        fig, ax = create_seaborn_fig()
-        sns.lineplot(data=dau, x='day', y='active_users', marker='o', linewidth=3, ax=ax)
-        ax.set_title('Daily Active Users (30 Days)', fontweight='bold')
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Active Users')
+        fig, ax = create_fig()
+        sns.lineplot(data=dau, x='day', y='active_users', marker='o', linewidth=3, color=COLORS['primary'], ax=ax)
+        ax.set_title('Daily Active Users (30 Days)', fontweight='bold', fontsize=14)
+        ax.set_xlabel('Date', fontsize=11)
+        ax.set_ylabel('Active Users', fontsize=11)
         plt.xticks(rotation=45)
         plt.tight_layout()
-        st.pyplot(fig, key="admin_dau_seaborn")
+        st.pyplot(fig)
 
 with col2:
     role_q = f"""
@@ -162,9 +154,10 @@ with col2:
     roles = run_query(role_q, client)
     
     if roles is not None and not roles.empty:
-        fig = px.pie(roles, names='role', values='count', title='Users by Role',
-                    color_discrete_sequence=MIVA_PALETTE)
-        st.plotly_chart(fig, use_container_width=True, key="admin_role_pie")
+        fig = px.pie(roles, names='role', values='count', title='Users by Role')
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        fig.update_layout(height=400)
+        st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
@@ -183,29 +176,37 @@ with col1:
     cases = run_query(case_q, client)
     
     if cases is not None and not cases.empty:
-        fig, ax = create_seaborn_fig()
+        fig, ax = create_fig()
         sns.barplot(data=cases, y='title', x='avg_score', palette='RdYlGn', ax=ax)
-        ax.set_title('Avg Score by Case Study', fontweight='bold')
-        ax.axvline(70, color='red', linestyle='--', alpha=0.5)
+        ax.set_title('Avg Score by Case Study', fontweight='bold', fontsize=14)
+        ax.axvline(70, color='red', linestyle='--', alpha=0.5, linewidth=2, label='Passing (70)')
+        ax.legend()
+        ax.set_xlabel('Average Score', fontsize=11)
+        ax.set_ylabel('Case Study', fontsize=11)
         plt.tight_layout()
-        st.pyplot(fig, key="admin_case_bar")
+        st.pyplot(fig)
 
 with col2:
     scores_q = f"SELECT final_score FROM {get_table_ref('grades')}"
     scores = run_query(scores_q, client)
     
     if scores is not None and not scores.empty:
-        fig, ax = create_seaborn_fig()
-        sns.histplot(data=scores, x='final_score', bins=20, kde=True, ax=ax)
-        ax.set_title('Score Distribution', fontweight='bold')
-        ax.axvline(scores['final_score'].mean(), color='red', linestyle='--')
+        fig, ax = create_fig()
+        sns.histplot(data=scores, x='final_score', bins=20, kde=True, color=COLORS['primary'], ax=ax)
+        ax.set_title('Score Distribution', fontweight='bold', fontsize=14)
+        mean_score = scores['final_score'].mean()
+        ax.axvline(mean_score, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_score:.1f}')
+        ax.axvline(70, color='orange', linestyle=':', linewidth=2, label='Passing (70)')
+        ax.legend()
+        ax.set_xlabel('Final Score', fontsize=11)
+        ax.set_ylabel('Frequency', fontsize=11)
         plt.tight_layout()
-        st.pyplot(fig, key="admin_score_hist")
+        st.pyplot(fig)
 
 st.divider()
 
 # ACTIVITY HEATMAP
-st.markdown("### 🔥 Activity Heatmap")
+st.markdown("### 🔥 Activity Heatmap (Day × Hour)")
 
 heat_q = f"""
 SELECT 
@@ -222,12 +223,16 @@ if heat is not None and not heat.empty:
     pivot = heat.pivot(index='day', columns='hour', values='activity').fillna(0)
     days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
     
-    fig, ax = create_seaborn_fig(figsize=(14, 6))
-    sns.heatmap(pivot, cmap='YlOrRd', cbar_kws={'label': 'Activity'}, ax=ax)
-    ax.set_yticklabels([days[int(i-1)] for i in pivot.index], rotation=0)
-    ax.set_title('Activity by Day & Hour', fontweight='bold')
+    fig, ax = create_fig(figsize=(14, 6))
+    sns.heatmap(pivot, cmap='YlOrRd', cbar_kws={'label': 'Activity Count'}, ax=ax, annot=False)
+    ax.set_yticklabels([days[int(i-1)] if i >= 1 and i <= 7 else 'Unknown' for i in pivot.index], rotation=0)
+    ax.set_title('Activity Heatmap: Day of Week × Hour', fontweight='bold', fontsize=14)
+    ax.set_xlabel('Hour of Day', fontsize=11)
+    ax.set_ylabel('Day of Week', fontsize=11)
     plt.tight_layout()
-    st.pyplot(fig, key="admin_heatmap")
+    st.pyplot(fig)
+else:
+    st.info("No activity data available for heatmap")
 
 st.divider()
 
@@ -248,11 +253,12 @@ funnel = run_query(funnel_q, client)
 
 if funnel is not None and not funnel.empty:
     fig = go.Figure(go.Funnel(
-        y=funnel['stage'], x=funnel['count'],
+        y=funnel['stage'],
+        x=funnel['count'],
         textinfo="value+percent initial",
-        marker=dict(color=MIVA_PALETTE)
+        marker=dict(color=[COLORS['primary'], COLORS['secondary'], COLORS['success'], COLORS['warning']])
     ))
     fig.update_layout(title='User Journey Funnel', height=400)
-    st.plotly_chart(fig, use_container_width=True, key="admin_funnel")
+    st.plotly_chart(fig, use_container_width=True)
 
-st.caption("💡 Dashboard is read-only. Derived metrics labeled (derived).")
+st.caption("💡 Read-only dashboard - Institution-level analytics")
