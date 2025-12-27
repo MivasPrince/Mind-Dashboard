@@ -1,5 +1,6 @@
 """
 Faculty Dashboard - Comprehensive Visual Analytics
+NO st.set_page_config - NO render() wrapper
 Trend lines, bar charts, histograms, heatmaps - visually engaging
 """
 
@@ -27,7 +28,7 @@ def create_fig(figsize=(10, 6)):
     ax.spines['right'].set_visible(False)
     return fig, ax
 
-st.set_page_config(page_title="Faculty", page_icon="👨‍🏫", layout="wide")
+# DASHBOARD CODE STARTS HERE
 
 st.markdown('<h1 class="main-header">👨‍🏫 Faculty Dashboard</h1>', unsafe_allow_html=True)
 st.markdown("**Comprehensive Academic Analytics** - Monitor progress & optimize outcomes")
@@ -69,7 +70,7 @@ with col1:
         gauge={'axis': {'range': [0, total_students * 1.5]}, 'bar': {'color': COLORS['primary']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fac_g1")
 
 with col2:
     fig = go.Figure(go.Indicator(
@@ -79,7 +80,7 @@ with col2:
         gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['success']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fac_g2")
 
 with col3:
     fig = go.Figure(go.Indicator(
@@ -89,7 +90,7 @@ with col3:
         gauge={'axis': {'range': [0, total_cases * 2]}, 'bar': {'color': COLORS['secondary']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fac_g3")
 
 with col4:
     fig = go.Figure(go.Indicator(
@@ -99,7 +100,7 @@ with col4:
         gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['warning']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fac_g4")
 
 st.divider()
 
@@ -121,7 +122,7 @@ if growth is not None and not growth.empty:
     fig.add_trace(go.Bar(x=growth['date'], y=growth['new_users'], name="New Users"), secondary_y=False)
     fig.add_trace(go.Scatter(x=growth['date'], y=growth['cumulative'], name="Cumulative", mode='lines+markers'), secondary_y=True)
     fig.update_layout(title="Daily New Users vs Cumulative", height=400)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fac_growth")
 
 st.divider()
 
@@ -140,7 +141,7 @@ with col1:
     data = run_query(q, client)
     if data is not None and not data.empty:
         fig = px.bar(data, x='students', y='title', orientation='h', title="👥 Students/Case")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="fac_bar1")
 
 with col2:
     q = f"""
@@ -152,7 +153,7 @@ with col2:
     data = run_query(q, client)
     if data is not None and not data.empty:
         fig = px.bar(data, x='sessions', y='title', orientation='h', title="🎯 Sessions/Case")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="fac_bar2")
 
 with col3:
     q = f"""
@@ -164,7 +165,7 @@ with col3:
     data = run_query(q, client)
     if data is not None and not data.empty:
         fig = px.bar(data, x='grades', y='title', orientation='h', title="✅ Grades/Case")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="fac_bar3")
 
 st.divider()
 
@@ -185,7 +186,7 @@ with col1:
         ax.axvline(70, color='orange', linestyle=':', label='Passing')
         ax.legend()
         plt.tight_layout()
-        st.pyplot(fig)
+        st.pyplot(fig, key="fac_hist")
 
 with col2:
     pf_q = f"""
@@ -196,7 +197,7 @@ with col2:
     pf = run_query(pf_q, client)
     if pf is not None and not pf.empty:
         fig = px.pie(pf, names='status', values='count', title='Pass/Fail')
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="fac_pie")
 
 st.divider()
 
@@ -225,6 +226,6 @@ if rubric is not None and not rubric.empty:
     ))
     fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
                      title="Class Rubric Scores", height=400)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fac_radar")
 
 st.caption("💡 Monitor, analyze, optimize learning outcomes")
