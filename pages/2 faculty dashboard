@@ -1,12 +1,7 @@
 """
-Faculty Dashboard - Comprehensive Visual Analytics
-NO st.set_page_config - NO render() wrapper
-Trend lines, bar charts, histograms, heatmaps - visually engaging
+Faculty Dashboard - Cohort Performance Analytics
+Proper Streamlit multi-page app structure
 """
-
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
 import pandas as pd
@@ -18,25 +13,45 @@ import matplotlib.pyplot as plt
 
 from core.db import get_bigquery_client, run_query
 from core.settings import get_table_ref, COLORS
+from core.theme import apply_theme_css, render_theme_toggle
+
+# Apply theme
+apply_theme_css()
+
+# Page config
+st.set_page_config(
+    page_title="Faculty Dashboard - MIND",
+    page_icon="👨‍🏫",
+    layout="wide"
+)
+
+# Require authentication
+if not st.session_state.get('authenticated', False):
+    st.warning("⚠️ Please log in from the Home page")
+    st.stop()
+
+# Sidebar
+with st.sidebar:
+    render_theme_toggle()
+
+# Header
+st.markdown("# 👨‍🏫 Faculty Dashboard")
+st.markdown(f"### Welcome, {st.session_state.username}!")
+st.markdown("Monitor student performance and identify at-risk learners")
+st.markdown("---")
+
+client = get_bigquery_client()
+if not client:
+    st.error("❌ Failed to connect")
+    st.stop()
 
 sns.set_style("whitegrid")
-sns.set_palette([COLORS['primary'], COLORS['secondary'], COLORS['success']])
 
 def create_fig(figsize=(10, 6)):
     fig, ax = plt.subplots(figsize=figsize, facecolor='white')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     return fig, ax
-
-# DASHBOARD CODE STARTS HERE
-
-st.markdown('<h1 class="main-header">👨‍🏫 Faculty Dashboard</h1>', unsafe_allow_html=True)
-st.markdown("**Comprehensive Academic Analytics** - Monitor progress & optimize outcomes")
-
-client = get_bigquery_client()
-if not client:
-    st.error("❌ Failed to connect")
-    st.stop()
 
 # KPI GAUGES
 st.markdown("### 📊 Teaching Metrics")
@@ -64,43 +79,39 @@ col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     fig = go.Figure(go.Indicator(
-        mode="number+gauge",
-        value=total_students,
+        mode="number+gauge", value=total_students,
         title={'text': "👥 Students"},
         gauge={'axis': {'range': [0, total_students * 1.5]}, 'bar': {'color': COLORS['primary']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True, key="fac_g1")
+    st.plotly_chart(fig, use_container_width=True)
 
 with col2:
     fig = go.Figure(go.Indicator(
-        mode="number+gauge",
-        value=avg_score,
+        mode="number+gauge", value=avg_score,
         title={'text': "📈 Class Avg"},
         gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['success']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True, key="fac_g2")
+    st.plotly_chart(fig, use_container_width=True)
 
 with col3:
     fig = go.Figure(go.Indicator(
-        mode="number+gauge",
-        value=total_cases,
+        mode="number+gauge", value=total_cases,
         title={'text': "📚 Cases"},
         gauge={'axis': {'range': [0, total_cases * 2]}, 'bar': {'color': COLORS['secondary']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True, key="fac_g3")
+    st.plotly_chart(fig, use_container_width=True)
 
 with col4:
     fig = go.Figure(go.Indicator(
-        mode="number+gauge",
-        value=pass_rate,
+        mode="number+gauge", value=pass_rate,
         title={'text': "✅ Pass Rate"},
         gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['warning']}}
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True, key="fac_g4")
+    st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
@@ -119,10 +130,13 @@ if growth is not None and not growth.empty:
     growth['cumulative'] = growth['new_users'].cumsum()
     
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    fig.add_trace(go.Bar(x=growth['date'], y=growth['new_users'], name="New Users"), secondary_y=False)
-    fig.add_trace(go.Scatter(x=growth['date'], y=growth['cumulative'], name="Cumulative", mode='lines+markers'), secondary_y=True)
-    fig.update_layout(title="Daily New Users vs Cumulative", height=400)
-    st.plotly_chart(fig, use_container_width=True, key="fac_growth")
+    fig.add_trace(go.Bar(x=growth['date'], y=growth['new_users'], name="New Users", marker_color=COLORS['secondary']), secondary_y=False)
+    fig.add_trace(go.Scatter(x=growth['date'], y=growth['cumulative'], name="Cumulative", mode='lines+markers', line=dict(color=COLORS['primary'], width=3)), secondary_y=True)
+    fig.update_layout(title="Daily New Users vs Cumulative Total", height=400)
+    fig.update_xaxes(title_text="Date")
+    fig.update_yaxes(title_text="New Users", secondary_y=False)
+    fig.update_yaxes(title_text="Cumulative Users", secondary_y=True)
+    st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
@@ -140,8 +154,9 @@ with col1:
     """
     data = run_query(q, client)
     if data is not None and not data.empty:
-        fig = px.bar(data, x='students', y='title', orientation='h', title="👥 Students/Case")
-        st.plotly_chart(fig, use_container_width=True, key="fac_bar1")
+        fig = px.bar(data, x='students', y='title', orientation='h', title="👥 Students per Case", color='students', color_continuous_scale='Blues')
+        fig.update_layout(showlegend=False, height=400)
+        st.plotly_chart(fig, use_container_width=True)
 
 with col2:
     q = f"""
@@ -152,8 +167,9 @@ with col2:
     """
     data = run_query(q, client)
     if data is not None and not data.empty:
-        fig = px.bar(data, x='sessions', y='title', orientation='h', title="🎯 Sessions/Case")
-        st.plotly_chart(fig, use_container_width=True, key="fac_bar2")
+        fig = px.bar(data, x='sessions', y='title', orientation='h', title="🎯 Sessions per Case", color='sessions', color_continuous_scale='Greens')
+        fig.update_layout(showlegend=False, height=400)
+        st.plotly_chart(fig, use_container_width=True)
 
 with col3:
     q = f"""
@@ -164,8 +180,9 @@ with col3:
     """
     data = run_query(q, client)
     if data is not None and not data.empty:
-        fig = px.bar(data, x='grades', y='title', orientation='h', title="✅ Grades/Case")
-        st.plotly_chart(fig, use_container_width=True, key="fac_bar3")
+        fig = px.bar(data, x='grades', y='title', orientation='h', title="✅ Grades per Case", color='grades', color_continuous_scale='Oranges')
+        fig.update_layout(showlegend=False, height=400)
+        st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
@@ -180,13 +197,15 @@ with col1:
     
     if scores is not None and not scores.empty:
         fig, ax = create_fig()
-        sns.histplot(data=scores, x='final_score', bins=20, kde=True, ax=ax)
-        ax.set_title('Overall Grade Distribution', fontweight='bold')
-        ax.axvline(scores['final_score'].mean(), color='red', linestyle='--', label='Mean')
-        ax.axvline(70, color='orange', linestyle=':', label='Passing')
+        sns.histplot(data=scores, x='final_score', bins=20, kde=True, color=COLORS['primary'], ax=ax)
+        ax.set_title('Overall Grade Distribution', fontweight='bold', fontsize=14)
+        ax.axvline(scores['final_score'].mean(), color='red', linestyle='--', linewidth=2, label=f"Mean: {scores['final_score'].mean():.1f}")
+        ax.axvline(70, color='orange', linestyle=':', linewidth=2, label='Passing (70)')
         ax.legend()
+        ax.set_xlabel('Final Score')
+        ax.set_ylabel('Frequency')
         plt.tight_layout()
-        st.pyplot(fig, key="fac_hist")
+        st.pyplot(fig)
 
 with col2:
     pf_q = f"""
@@ -196,13 +215,16 @@ with col2:
     """
     pf = run_query(pf_q, client)
     if pf is not None and not pf.empty:
-        fig = px.pie(pf, names='status', values='count', title='Pass/Fail')
-        st.plotly_chart(fig, use_container_width=True, key="fac_pie")
+        fig = px.pie(pf, names='status', values='count', title='Pass/Fail Distribution',
+                    color='status', color_discrete_map={'Pass': COLORS['success'], 'Fail': COLORS['danger']})
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        fig.update_layout(height=400)
+        st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
 # RUBRIC RADAR
-st.markdown("### 🎯 Rubric Analysis")
+st.markdown("### 🎯 Class Rubric Analysis")
 
 rubric_q = f"""
 SELECT 
@@ -218,14 +240,24 @@ if rubric is not None and not rubric.empty:
     comp = float(rubric['comp'].iloc[0] or 0)
     crit = float(rubric['crit'].iloc[0] or 0)
     
-    fig = go.Figure()
-    fig.add_trace(go.Scatterpolar(
-        r=[comm, comp, crit, comm],
-        theta=['Communication', 'Comprehension', 'Critical Thinking', 'Communication'],
-        fill='toself'
-    ))
-    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
-                     title="Class Rubric Scores", height=400)
-    st.plotly_chart(fig, use_container_width=True, key="fac_radar")
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        fig = go.Figure()
+        fig.add_trace(go.Scatterpolar(
+            r=[comm, comp, crit, comm],
+            theta=['Communication', 'Comprehension', 'Critical Thinking', 'Communication'],
+            fill='toself', line_color=COLORS['primary'], fillcolor=COLORS['primary'], opacity=0.5
+        ))
+        fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                         title="Class Average Rubric Scores", height=400)
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        st.markdown("#### Average Scores")
+        st.metric("Communication", f"{comm:.1f}")
+        st.metric("Comprehension", f"{comp:.1f}")
+        st.metric("Critical Thinking", f"{crit:.1f}")
+        st.metric("Overall", f"{(comm+comp+crit)/3:.1f}")
 
-st.caption("💡 Monitor, analyze, optimize learning outcomes")
+st.caption("💡 Monitor, analyze, and optimize learning outcomes")
