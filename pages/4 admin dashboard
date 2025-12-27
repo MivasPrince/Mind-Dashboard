@@ -1,6 +1,5 @@
 """
-Admin Dashboard - Institution-Wide Analytics
-Proper Streamlit multi-page app structure - COMPLETE WITH ALL VISUALIZATIONS
+Admin Dashboard - Institution Analytics
 """
 
 import streamlit as st
@@ -9,40 +8,24 @@ import plotly.express as px
 import plotly.graph_objects as go
 import seaborn as sns
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
 
 from core.db import get_bigquery_client, run_query
 from core.settings import get_table_ref, COLORS
-from core.theme import apply_theme_css, render_theme_toggle
 
-# Apply theme
-apply_theme_css()
+st.set_page_config(page_title="Admin Dashboard", page_icon="⚙️", layout="wide")
 
-# Page config
-st.set_page_config(
-    page_title="Admin Dashboard - MIND",
-    page_icon="⚙️",
-    layout="wide"
-)
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'username' not in st.session_state:
+    st.session_state.username = None
 
-# Require authentication
-if not st.session_state.get('authenticated', False):
-    st.warning("⚠️ Please log in from the Home page")
+if not st.session_state.authenticated:
+    st.warning("⚠️ Please log in from Home")
     st.stop()
 
-# Sidebar
-with st.sidebar:
-    render_theme_toggle()
-    st.divider()
-    st.header("🔍 Filters")
-    today = datetime.utcnow().date()
-    default_start = today - timedelta(days=30)
-    date_range = st.date_input("Date Range", value=(default_start, today), max_value=today)
-
-# Header
 st.markdown("# ⚙️ Admin Dashboard")
 st.markdown(f"### Welcome, {st.session_state.username}!")
-st.markdown("Institution-level analytics and KPIs")
+st.markdown("Institution-level KPIs")
 st.markdown("---")
 
 client = get_bigquery_client()
@@ -58,7 +41,6 @@ def create_fig(figsize=(10, 6)):
     ax.spines['right'].set_visible(False)
     return fig, ax
 
-# EXECUTIVE KPIs
 st.markdown("### 📊 Executive Summary")
 
 users_q = f"SELECT COUNT(DISTINCT user_id) as val FROM {get_table_ref('user')}"
@@ -69,60 +51,43 @@ sessions_q = f"SELECT COUNT(*) as val FROM {get_table_ref('sessions')}"
 sessions_df = run_query(sessions_q, client)
 total_sessions = int(sessions_df['val'].iloc[0]) if sessions_df is not None and not sessions_df.empty else 0
 
-avg_score_q = f"SELECT AVG(final_score) as val FROM {get_table_ref('grades')}"
-avg_df = run_query(avg_score_q, client)
+avg_q = f"SELECT AVG(final_score) as val FROM {get_table_ref('grades')}"
+avg_df = run_query(avg_q, client)
 avg_score = float(avg_df['val'].iloc[0]) if avg_df is not None and not avg_df.empty else 0
 
-uptime_q = f"""
-SELECT COUNTIF(derived_request_success = TRUE) * 100.0 / COUNT(*) as val
-FROM {get_table_ref('backend_telemetry')}
-WHERE http_status_code IS NOT NULL
-"""
+uptime_q = f"SELECT COUNTIF(derived_request_success = TRUE) * 100.0 / COUNT(*) as val FROM {get_table_ref('backend_telemetry')} WHERE http_status_code IS NOT NULL"
 uptime_df = run_query(uptime_q, client)
 uptime = float(uptime_df['val'].iloc[0]) if uptime_df is not None and not uptime_df.empty else 0
 
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    fig = go.Figure(go.Indicator(
-        mode="number+gauge", value=total_users,
-        title={'text': "👥 Total Users"},
-        gauge={'axis': {'range': [0, total_users * 1.5]}, 'bar': {'color': COLORS['primary']}}
-    ))
+    fig = go.Figure(go.Indicator(mode="number+gauge", value=total_users, title={'text': "👥 Users"},
+        gauge={'axis': {'range': [0, total_users * 1.5]}, 'bar': {'color': COLORS['primary']}}))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    fig = go.Figure(go.Indicator(
-        mode="number+gauge", value=total_sessions,
-        title={'text': "🎯 Sessions"},
-        gauge={'axis': {'range': [0, total_sessions * 1.5]}, 'bar': {'color': COLORS['secondary']}}
-    ))
+    fig = go.Figure(go.Indicator(mode="number+gauge", value=total_sessions, title={'text': "🎯 Sessions"},
+        gauge={'axis': {'range': [0, total_sessions * 1.5]}, 'bar': {'color': COLORS['secondary']}}))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 with col3:
-    fig = go.Figure(go.Indicator(
-        mode="number+gauge", value=avg_score,
-        title={'text': "📈 Avg Score"},
-        gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['success']}}
-    ))
+    fig = go.Figure(go.Indicator(mode="number+gauge", value=avg_score, title={'text': "📈 Avg Score"},
+        gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['success']}}))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 with col4:
-    fig = go.Figure(go.Indicator(
-        mode="number+gauge", value=uptime,
-        title={'text': "✅ Uptime %"},
-        gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['success']}}
-    ))
+    fig = go.Figure(go.Indicator(mode="number+gauge", value=uptime, title={'text': "✅ Uptime %"},
+        gauge={'axis': {'range': [0, 100]}, 'bar': {'color': COLORS['success']}}))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=50, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
-# USER GROWTH
-st.markdown("### 📈 User Growth & Adoption")
+st.markdown("### 📈 User Growth")
 
 col1, col2 = st.columns(2)
 
@@ -134,131 +99,65 @@ with col1:
     GROUP BY day ORDER BY day
     """
     dau = run_query(dau_q, client)
-    
     if dau is not None and not dau.empty:
         fig, ax = create_fig()
-        sns.lineplot(data=dau, x='day', y='active_users', marker='o', linewidth=3, color=COLORS['primary'], ax=ax)
-        ax.set_title('Daily Active Users (30 Days)', fontweight='bold', fontsize=14)
-        ax.set_xlabel('Date', fontsize=11)
-        ax.set_ylabel('Active Users', fontsize=11)
+        sns.lineplot(data=dau, x='day', y='active_users', marker='o', linewidth=3, ax=ax)
+        ax.set_title('Daily Active Users (30 Days)', fontweight='bold')
         plt.xticks(rotation=45)
         plt.tight_layout()
         st.pyplot(fig)
 
 with col2:
-    role_q = f"""
-    SELECT COALESCE(role, 'Unknown') as role, COUNT(*) as count
-    FROM {get_table_ref('user')}
-    GROUP BY role
-    """
+    role_q = f"SELECT COALESCE(role, 'Unknown') as role, COUNT(*) as count FROM {get_table_ref('user')} GROUP BY role"
     roles = run_query(role_q, client)
-    
     if roles is not None and not roles.empty:
         fig = px.pie(roles, names='role', values='count', title='Users by Role')
-        fig.update_traces(textposition='inside', textinfo='percent+label')
-        fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
-# LEARNING PERFORMANCE
 st.markdown("### 📚 Learning Performance")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    case_q = f"""
-    SELECT c.title, AVG(g.final_score) as avg_score
-    FROM {get_table_ref('casestudy')} c
-    LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study
-    GROUP BY c.title ORDER BY avg_score DESC
-    """
+    case_q = f"SELECT c.title, AVG(g.final_score) as avg_score FROM {get_table_ref('casestudy')} c LEFT JOIN {get_table_ref('grades')} g ON c.case_study_id = g.case_study GROUP BY c.title ORDER BY avg_score DESC"
     cases = run_query(case_q, client)
-    
     if cases is not None and not cases.empty:
         fig, ax = create_fig()
         sns.barplot(data=cases, y='title', x='avg_score', palette='RdYlGn', ax=ax)
-        ax.set_title('Avg Score by Case Study', fontweight='bold', fontsize=14)
-        ax.axvline(70, color='red', linestyle='--', alpha=0.5, linewidth=2, label='Passing (70)')
-        ax.legend()
-        ax.set_xlabel('Average Score', fontsize=11)
-        ax.set_ylabel('Case Study', fontsize=11)
+        ax.set_title('Avg Score by Case', fontweight='bold')
+        ax.axvline(70, color='red', linestyle='--', alpha=0.5)
         plt.tight_layout()
         st.pyplot(fig)
 
 with col2:
     scores_q = f"SELECT final_score FROM {get_table_ref('grades')}"
     scores = run_query(scores_q, client)
-    
     if scores is not None and not scores.empty:
         fig, ax = create_fig()
-        sns.histplot(data=scores, x='final_score', bins=20, kde=True, color=COLORS['primary'], ax=ax)
-        ax.set_title('Score Distribution', fontweight='bold', fontsize=14)
-        mean_score = scores['final_score'].mean()
-        ax.axvline(mean_score, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_score:.1f}')
-        ax.axvline(70, color='orange', linestyle=':', linewidth=2, label='Passing (70)')
-        ax.legend()
-        ax.set_xlabel('Final Score', fontsize=11)
-        ax.set_ylabel('Frequency', fontsize=11)
+        sns.histplot(data=scores, x='final_score', bins=20, kde=True, ax=ax)
+        ax.set_title('Score Distribution', fontweight='bold')
+        ax.axvline(scores['final_score'].mean(), color='red', linestyle='--')
         plt.tight_layout()
         st.pyplot(fig)
 
 st.divider()
 
-# ACTIVITY HEATMAP
-st.markdown("### 🔥 Activity Heatmap (Day × Hour)")
-
-heat_q = f"""
-SELECT 
-    EXTRACT(DAYOFWEEK FROM timestamp) as day,
-    EXTRACT(HOUR FROM timestamp) as hour,
-    COUNT(*) as activity
-FROM {get_table_ref('conversation')}
-WHERE timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
-GROUP BY day, hour
-"""
-heat = run_query(heat_q, client)
-
-if heat is not None and not heat.empty:
-    pivot = heat.pivot(index='day', columns='hour', values='activity').fillna(0)
-    days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-    
-    fig, ax = create_fig(figsize=(14, 6))
-    sns.heatmap(pivot, cmap='YlOrRd', cbar_kws={'label': 'Activity Count'}, ax=ax, annot=False)
-    ax.set_yticklabels([days[int(i-1)] if i >= 1 and i <= 7 else 'Unknown' for i in pivot.index], rotation=0)
-    ax.set_title('Activity Heatmap: Day of Week × Hour', fontweight='bold', fontsize=14)
-    ax.set_xlabel('Hour of Day', fontsize=11)
-    ax.set_ylabel('Day of Week', fontsize=11)
-    plt.tight_layout()
-    st.pyplot(fig)
-else:
-    st.info("No activity data available for heatmap")
-
-st.divider()
-
-# FUNNEL
 st.markdown("### 🎯 Learning Funnel")
 
 funnel_q = f"""
 SELECT 'Registered' as stage, COUNT(DISTINCT user_id) as count, 1 as ord FROM {get_table_ref('user')}
-UNION ALL
-SELECT 'Sessions' as stage, COUNT(DISTINCT _id) as count, 2 FROM {get_table_ref('sessions')}
-UNION ALL
-SELECT 'Conversations' as stage, COUNT(DISTINCT user) as count, 3 FROM {get_table_ref('conversation')}
-UNION ALL
-SELECT 'Graded' as stage, COUNT(DISTINCT user) as count, 4 FROM {get_table_ref('grades')}
+UNION ALL SELECT 'Sessions', COUNT(DISTINCT _id), 2 FROM {get_table_ref('sessions')}
+UNION ALL SELECT 'Conversations', COUNT(DISTINCT user), 3 FROM {get_table_ref('conversation')}
+UNION ALL SELECT 'Graded', COUNT(DISTINCT user), 4 FROM {get_table_ref('grades')}
 ORDER BY ord
 """
 funnel = run_query(funnel_q, client)
 
 if funnel is not None and not funnel.empty:
-    fig = go.Figure(go.Funnel(
-        y=funnel['stage'],
-        x=funnel['count'],
-        textinfo="value+percent initial",
-        marker=dict(color=[COLORS['primary'], COLORS['secondary'], COLORS['success'], COLORS['warning']])
-    ))
+    fig = go.Figure(go.Funnel(y=funnel['stage'], x=funnel['count'], textinfo="value+percent initial"))
     fig.update_layout(title='User Journey Funnel', height=400)
     st.plotly_chart(fig, use_container_width=True)
 
-st.caption("💡 Read-only dashboard - Institution-level analytics")
+st.caption("💡 Admin Dashboard")
