@@ -1,6 +1,5 @@
 """
 Student Dashboard - Personal Learning Analytics
-Proper Streamlit multi-page app structure
 """
 
 import streamlit as st
@@ -10,27 +9,26 @@ import plotly.graph_objects as go
 
 from core.db import get_bigquery_client, run_query
 from core.settings import get_table_ref, COLORS
-from core.auth import check_authentication
-from core.theme import apply_theme_css, render_theme_toggle
 
-# Apply theme
-apply_theme_css()
-
-# Page config
+# Page config MUST be first
 st.set_page_config(
     page_title="Student Dashboard - MIND",
     page_icon="📚",
     layout="wide"
 )
 
-# Require authentication
-if not st.session_state.get('authenticated', False):
+# Initialize session state if not exists
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'username' not in st.session_state:
+    st.session_state.username = None
+if 'role' not in st.session_state:
+    st.session_state.role = None
+
+# Check authentication
+if not st.session_state.authenticated:
     st.warning("⚠️ Please log in from the Home page")
     st.stop()
-
-# Sidebar
-with st.sidebar:
-    render_theme_toggle()
 
 # Header
 st.markdown("# 📚 Student Dashboard")
@@ -40,7 +38,7 @@ st.markdown("---")
 
 client = get_bigquery_client()
 if not client:
-    st.error("❌ Failed to connect")
+    st.error("❌ Failed to connect to database")
     st.stop()
 
 # Student Selector
